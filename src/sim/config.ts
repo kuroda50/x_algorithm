@@ -16,7 +16,7 @@ export const BAD_RATE = 0.12;
 export const POST_MAX_AGE = 32; // ビート。これより古い投稿はフィルタで除外
 export const POST_KEEP_AGE = 40; // ビート。これより古い投稿は消す
 
-export const DEFAULT_AGENT_COUNT = 12;
+export const DEFAULT_AGENT_COUNT = 8;
 export const MIN_AGENT_COUNT = 4;
 export const MAX_AGENT_COUNT = 24;
 export const AGENT_NAMES: readonly string[] = [
@@ -29,8 +29,8 @@ export const INITIAL_FOLLOWS_PER_TOPIC = 2; // 最初は話題ごとに同じ人
 export const INITIAL_INTEREST_JITTER = 0.015;
 export const INTEREST_FLOOR = 0.01;
 
-// エージェント i は beat % REQUEST_INTERVAL === i % REQUEST_INTERVAL のビートにフィードを要求する
-export const REQUEST_INTERVAL = 4;
+// フィード要求は 1 拍につきエージェント 1 体（beat % agents.length === agent.id）。
+// 1 拍にフォロー内・フォロー外 4 個ずつ発射され、16 分音符ごとに楽器に当たる。
 export const CANDIDATES_IN = 4;
 export const CANDIDATES_OUT = 4;
 export const SELECT_K = 3;
@@ -48,7 +48,7 @@ export const PIPELINE_BEATS = 5; // 始発駅からエージェントまでの�
 export const MOVE_FRACTION = 0.75; // 1 拍のうち移動に使う割合。残りは駅で止まる
 
 export const FEED_KEEP = 20;
-export const METRICS_MIN_FEED = 12; // フィードがこの件数に満たないエージェントは指標に含めない
+export const METRICS_MIN_FEED = 6; // フィードがこの件数に満たないエージェントは指標に含めない
 export const METRICS_KEEP = 240;
 
 export const DEFAULT_PARAMS: Params = {
@@ -57,7 +57,7 @@ export const DEFAULT_PARAMS: Params = {
   wRepost: 2,
   diversity: 0.5,
   oonFactor: 0.75,
-  learningRate: 0.08,
+  learningRate: 0.16,
 };
 
 export const DEFAULT_BPM = 110;

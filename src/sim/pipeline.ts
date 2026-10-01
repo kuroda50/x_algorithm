@@ -85,7 +85,14 @@ export function scorePost(
   return { pLike, pReply, pRepost, score };
 }
 
+// 今の重みで取りうる最大のスコア（興味が最大・品質が最高の投稿）
+const FULL_INTEREST = TOPICS.map((_, i) => (i === 0 ? 1 : 0));
+export function maxScore(params: Params): number {
+  return scorePost(FULL_INTEREST, 0, 1, params).score;
+}
+
 export function scoreStage(items: PipeItem[], interest: number[], params: Params): void {
+  const max = maxScore(params);
   for (const it of items) {
     if (it.cand.dropStage !== null) continue;
     const s = scorePost(interest, it.post.topic, it.post.quality, params);
@@ -93,6 +100,7 @@ export function scoreStage(items: PipeItem[], interest: number[], params: Params
     it.cand.pReply = s.pReply;
     it.cand.pRepost = s.pRepost;
     it.cand.score = s.score;
+    it.cand.scoreNorm = max > 0 ? clamp(s.score / max, 0, 1) : 0;
   }
 }
 
@@ -112,18 +120,24 @@ export function applyDiversity(cands: Candidate[], params: Params): void {
 }
 
 // 駅4: 選抜。adjusted の上位 SELECT_K 件だけが通過し、残りは dropStage=4。
+// 通過・落選にかかわらず、フィルタを抜けた候補には順位 rank を入れる。
 export function selectTopK(cands: Candidate[]): void {
   const alive = cands
     .filter((c) => c.dropStage === null)
     .sort((a, b) => b.adjusted - a.adjusted || a.id - b.id);
-  for (let i = SELECT_K; i < alive.length; i++) {
-    alive[i].dropStage = 4;
-    alive[i].dropReason = 'rank';
+  for (let i = 0; i < alive.length; i++) {
+    alive[i].rank = i;
+    if (i >= SELECT_K) {
+      alive[i].dropStage = 4;
+      alive[i].dropReason = 'rank';
+    }
   }
 }
 
 // エージェント 1 体のフィード要求を処理し、候補とその運命を返す（startBeat は world.beat）。
+// slot は同じ source の中で先頭から数えた順番を 4 で割った余り（16 分音符の発射位置）。
 export function runPipeline(world: World, agent: Agent, params: Params): Candidate[] {
+  const slotCount = { in: 0, out: 0 };
   const items: PipeItem[] = retrieveCandidates(world, agent).map((r) => ({
     post: r.post,
     cand: {
@@ -134,11 +148,14 @@ export function runPipeline(world: World, agent: Agent, params: Params): Candida
       authorId: r.post.authorId,
       source: r.source,
       startBeat: world.beat,
+      slot: slotCount[r.source]++ % 4,
       pLike: 0,
       pReply: 0,
       pRepost: 0,
       score: 0,
+      scoreNorm: 0,
       adjusted: 0,
+      rank: -1,
       dropStage: null,
       dropReason: null,
     },

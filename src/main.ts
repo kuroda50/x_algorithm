@@ -83,7 +83,7 @@ function frame(ts: number): void {
     while (Math.floor(beat) > world.beat) {
       const events = stepBeat(world, params);
       renderer.onBeat(world, events);
-      audio.onBeat(events, bpm, (beat - world.beat) * (60 / bpm));
+      audio.onBeat(world, events, bpm, (beat - world.beat) * (60 / bpm));
       feedPanel.update(world, selected, params);
       chart.update(world);
       controls.setStats(world.stats);

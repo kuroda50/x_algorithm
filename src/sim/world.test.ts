@@ -54,6 +54,23 @@ describe('学習', () => {
   });
 });
 
+describe('フィード要求', () => {
+  it('各ビートで要求するエージェントはちょうど 1 体で、agents.length ビートで一巡する', () => {
+    const world = createWorld(1, 6);
+    const seen = new Set<number>();
+    for (let i = 0; i < world.agents.length; i++) {
+      const events = stepBeat(world, DEFAULT_PARAMS);
+      // このビートに要求したのは 1 体だけ
+      expect(events.spawned.length).toBeGreaterThan(0);
+      const who = new Set(events.spawned.map((c) => c.agentId));
+      expect(who.size).toBe(1);
+      expect(events.spawned[0].agentId).toBe(world.beat % world.agents.length);
+      seen.add(events.spawned[0].agentId);
+    }
+    expect(seen.size).toBe(world.agents.length);
+  });
+});
+
 describe('候補の掃除', () => {
   it('world.candidates は増え続けない', () => {
     const world = createWorld(11, 12);

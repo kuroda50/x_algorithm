@@ -57,10 +57,12 @@ export interface Agent {
   feed: FeedItem[]; // 新しい順。最大 FEED_KEEP 件
 }
 
-// 1 回のフィード要求で流れる投稿 1 件。
-// 運命（どこで落ちるか・スコア）は要求した時点で決まり、画面はそれを 5 ビートかけて見せる。
-//   startBeat + k のビートで、駅 k-1 から駅 k へ移動する（k = 1..5）。
-//   移動はビートの前半 0.75 拍で終わり、到着の演出はビート位置 startBeat + k + 0.75 で起きる。
+// 1 回のフィード要求で発射されるボール（投稿）1 個。
+// 運命（どこで落ちるか・スコア）は発射した時点で決まり、描画と音は show/score.ts の
+// 時刻表（timeline）に従って進める。発射位置は t0 = startBeat + slot / 4（16 分音符）。
+//   ドラム t0+1 →（フィルタ落ちならシンバル t0+1.5 → スクラップ箱 t0+2 で終わり）
+//   → ビブラフォン t0+2 → ベース t0+3
+//   →（落選なら落とし穴 t0+4 → 落選箱 t0+4.5 で終わり）→ ベル t0+4 → キャッチ t0+5
 export interface Candidate {
   id: number;
   agentId: number;
@@ -68,12 +70,15 @@ export interface Candidate {
   topic: TopicId;
   authorId: number;
   source: 'in' | 'out';
-  startBeat: number; // 始発駅に現れたビート
+  startBeat: number; // 発射要求があったビート
+  slot: number; // 0..3。拍の中の発射位置（16 分音符）。同じ要求・同じ source の中での順番
   pLike: number;
   pReply: number;
   pRepost: number;
-  score: number; // スコアリング駅での値（フィルタで落ちたものは 0）
+  score: number; // スコアリングでの値（フィルタで落ちたものは 0）
+  scoreNorm: number; // score を今の重みで取りうる最大値で割った値 0..1。フィルタで落ちたものは 0
   adjusted: number; // 多様性調整後の値
+  rank: number; // 選抜での順位（adjusted の大きい順、0 始まり）。フィルタで落ちたものは -1
   dropStage: 1 | 4 | null; // 1:フィルタで除外 4:選抜で落選 null:フィードに届く
   dropReason: 'bad' | 'old' | 'rank' | null;
 }
@@ -94,9 +99,9 @@ export interface Delivery {
 }
 
 // stepBeat がビート b で返す出来事。
-//   spawned:   ビート b で始発駅に現れた候補
-//   dropped:   ビート b の移動の終わり（b + 0.75）に除外・落選する候補
-//   delivered: ビート b の移動の終わり（b + 0.75）にエージェントへ届く候補
+//   spawned:   ビート b で発射された候補（そのビートに要求したエージェント 1 体分）
+//   dropped:   ビート b にシンバル・落とし穴へ当たる（除外・落選が確定する）候補
+//   delivered: ビート b にエージェントが受け止める候補
 // world の状態（興味・フィード）は stepBeat の時点で更新済み。
 export interface BeatEvents {
   beat: number;

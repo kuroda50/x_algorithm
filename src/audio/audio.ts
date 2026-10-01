@@ -1,11 +1,11 @@
-import type { BeatEvents } from '../sim/types';
+import type { BeatEvents, World } from '../sim/types';
 import { scheduleBeat } from './schedule';
 
 export interface AudioEngine {
   readonly enabled: boolean;
   setEnabled(on: boolean): void;
   // stepBeat の直後に呼ぶ。lateSeconds は拍の頭から今までに過ぎた秒数（0 以上）。
-  onBeat(events: BeatEvents, bpm: number, lateSeconds: number): void;
+  onBeat(world: World, events: BeatEvents, bpm: number, lateSeconds: number): void;
 }
 
 export function createAudio(): AudioEngine {
@@ -86,31 +86,44 @@ export function createAudio(): AudioEngine {
         if (ac && ac.state === 'suspended') void ac.resume();
       }
     },
-    onBeat(events: BeatEvents, bpm: number, lateSeconds: number) {
+    onBeat(world: World, events: BeatEvents, bpm: number, lateSeconds: number) {
       if (!on || !ac) return;
       const now = ac.currentTime;
       const head = now - Math.max(0, lateSeconds);
       const spb = 60 / bpm;
-      for (const n of scheduleBeat(events)) {
+      for (const n of scheduleBeat(world.candidates, events, events.beat)) {
         const t = Math.max(now, head + n.atBeats * spb);
         switch (n.kind) {
           case 'kick':
             kick(t, n.gain);
             break;
+          case 'snare':
           case 'hat':
+          case 'openHat':
+          case 'shaker':
+          case 'cymbal':
             hat(t);
             break;
-          case 'pluck':
-            tone(t, n.freq, 0.07, 0.35);
+          case 'vibe':
+            tone(t, n.freq, 0.07 * n.gain, 0.5);
             break;
-          case 'ping':
-            tone(t, n.freq, 0.03, 0.12);
+          case 'bass':
+            tone(t, n.freq, 0.1 * n.gain, 0.3, 'triangle');
             break;
-          case 'thud':
-            tone(t, n.freq, 0.05, 0.15, 'square');
+          case 'bassMute':
+            tone(t, 90, 0.05 * n.gain, 0.15, 'square');
+            break;
+          case 'bell':
+            tone(t, n.freq, 0.05 * n.gain, 0.8);
             break;
           case 'clack':
-            tone(t, n.freq, 0.025, 0.05, 'triangle');
+            tone(t, 1200, 0.025 * n.gain, 0.05, 'triangle');
+            break;
+          case 'pluck':
+            tone(t, n.freq, 0.07 * n.gain, 0.35);
+            break;
+          case 'ping':
+            tone(t, n.freq, 0.03 * n.gain, 0.12);
             break;
         }
       }
