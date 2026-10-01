@@ -35,6 +35,8 @@ class FakeCtx {
   strokeText(...a: unknown[]) { this.rec('strokeText', a); }
   save(...a: unknown[]) { this.rec('save', a); }
   restore(...a: unknown[]) { this.rec('restore', a); }
+  translate(...a: unknown[]) { this.rec('translate', a); }
+  rotate(...a: unknown[]) { this.rec('rotate', a); }
 }
 
 function mkCanvas(ctx: FakeCtx): HTMLCanvasElement {
@@ -193,5 +195,34 @@ describe('createRenderer', () => {
     const world2 = mkWorld({ agents: [mkAgent(0), mkAgent(1), mkAgent(2), mkAgent(3)] });
     r.reset(world2);
     expect(() => r.draw(world2, 1.2, 1 / 60)).not.toThrow();
+  });
+
+  it('フィルタ除外・選抜落選の候補を含む world で各 phase の描画が例外なく回る', () => {
+    const ctx = new FakeCtx();
+    const r = createRenderer(mkCanvas(ctx));
+    const world = mkWorld({
+      candidates: [
+        mkCandidate({ id: 1, agentId: 0, topic: 0, source: 'in', dropStage: 1, dropReason: 'bad' }),
+        mkCandidate({ id: 2, agentId: 1, topic: 2, source: 'out', dropStage: 4, dropReason: 'rank' }),
+        mkCandidate({ id: 3, agentId: 0, topic: 1, source: 'in' }),
+      ],
+    });
+    r.reset(world);
+    // phase 0, 0.5, 0.75, 0.9 を含む数拍ぶん（除外 1.75・落選 4.75 の前後を通る）
+    for (const beat of [0, 0.5, 0.75, 0.9, 1, 1.75, 1.9, 2.2, 4, 4.75, 5, 5.4, 5.9]) {
+      expect(() => r.draw(world, beat, 1 / 60)).not.toThrow();
+    }
+  });
+
+  it('機械と箱のラベルが描かれる', () => {
+    const ctx = new FakeCtx();
+    const r = createRenderer(mkCanvas(ctx));
+    const world = mkWorld({});
+    r.reset(world);
+    r.draw(world, 0, 1 / 60);
+    const names = ctx.calls.filter(([n]) => n === 'fillText').map(([, a]) => a[0]);
+    for (const t of ['検品', 'プレス', '削り', 'スクラップ', '落選']) {
+      expect(names).toContain(t);
+    }
   });
 });

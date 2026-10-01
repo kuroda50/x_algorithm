@@ -109,6 +109,9 @@ export function createAudio(): AudioEngine {
           case 'thud':
             tone(t, n.freq, 0.05, 0.15, 'square');
             break;
+          case 'clack':
+            tone(t, n.freq, 0.025, 0.05, 'triangle');
+            break;
         }
       }
     },

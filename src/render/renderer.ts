@@ -1,6 +1,24 @@
-import { agentColor, MOVE_FRACTION, TOPICS } from '../sim/config';
+import { agentColor, MOVE_FRACTION, SELECT_K, TOPICS } from '../sim/config';
 import type { BeatEvents, Candidate, Reactions, World } from '../sim/types';
 import { createAgentMotion } from './agentMotion';
+import {
+  BIN_H,
+  clamp01,
+  drawBarLamps,
+  drawBelt,
+  drawBin,
+  drawHopper,
+  drawHopperShutter,
+  drawInspector,
+  drawInspectorBeam,
+  drawPress,
+  drawPressJaws,
+  drawSorter,
+  drawSorterArm,
+  drawTrimmer,
+  isAccent,
+  strokeAt,
+} from './factory';
 import {
   agentRoute,
   DISTRICT_CENTER,
@@ -89,14 +107,21 @@ interface CandidateGeom {
   phase: number;
 }
 
-const STATION_DEFS = [
-  { p: STATION_IN, name: 'フォロー内', sub: 'Thunder', labelDy: 32, pulseIdx: 0 },
-  { p: STATION_OUT, name: 'フォロー外', sub: 'Phoenix 検索', labelDy: 32, pulseIdx: 0 },
-  { p: STATIONS[1], name: 'フィルタ', sub: null, labelDy: 46, pulseIdx: 1 },
-  { p: STATIONS[2], name: 'スコアリング', sub: null, labelDy: 46, pulseIdx: 2 },
-  { p: STATIONS[3], name: '多様性調整', sub: null, labelDy: 46, pulseIdx: 3 },
-  { p: STATIONS[4], name: '選抜', sub: null, labelDy: 46, pulseIdx: 4 },
+// 機械とラベルの位置。主ラベルはアルゴリズムの用語、副ラベルは機械名。
+const MACHINE_LABELS = [
+  // 搬入口は箱の中心（駅の位置から左へ 22）に合わせ、ベルトのレールを避ける
+  { p: { x: STATION_IN.x - 22, y: STATION_IN.y }, name: 'フォロー内', sub: 'Thunder', y: 234, subY: 247 },
+  { p: { x: STATION_OUT.x - 22, y: STATION_OUT.y }, name: 'フォロー外', sub: 'Phoenix 検索', y: 510, subY: 523 },
+  { p: STATIONS[1], name: 'フィルタ', sub: '検品', y: 238, subY: 252 },
+  { p: STATIONS[2], name: 'スコアリング', sub: 'プレス', y: 238, subY: 252 },
+  { p: STATIONS[3], name: '多様性調整', sub: '削り', y: 238, subY: 252 },
+  { p: STATIONS[4], name: '選抜', sub: `上位 ${SELECT_K} 件を仕分け`, y: 238, subY: 252 },
 ];
+
+const BIN_Y = 460;
+const BIN_MOUTH_Y = BIN_Y - BIN_H / 2 + 4; // 箱の口（上辺の少し内側）
+const SCRAP_BIN = { x: STATIONS[1].x, y: BIN_Y }; // スクラップ箱: フィルタの真下
+const REJECT_BIN = { x: STATIONS[4].x, y: BIN_Y }; // 落選箱: 選抜の真下
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const context = canvas.getContext('2d');
@@ -223,31 +248,20 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.fillStyle = colors.textMuted;
-    ctx.fillText('フォロー内線', 72, y2);
-    ctx.fillText('フォロー外線', 188, y2);
+    ctx.fillText('フォロー内ライン', 72, y2);
+    ctx.fillText('フォロー外ライン', 188, y2);
   }
 
-  function drawStations(bp: number): void {
+  function drawLabels(): void {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const s of STATION_DEFS) {
-      const r = 13 + pulse[s.pulseIdx] * 5 + bp * 1.5;
-      ctx.fillStyle = colors.surface;
-      ctx.strokeStyle = colors.text;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(s.p.x, s.p.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      const labelY = s.p.y + s.labelDy;
+    for (const s of MACHINE_LABELS) {
       ctx.fillStyle = colors.text;
       ctx.font = '12px sans-serif';
-      ctx.fillText(s.name, s.p.x, labelY);
-      if (s.sub) {
-        ctx.fillStyle = colors.textMuted;
-        ctx.font = '9px sans-serif';
-        ctx.fillText(s.sub, s.p.x, labelY + 13);
-      }
+      ctx.fillText(s.name, s.p.x, s.y);
+      ctx.fillStyle = colors.textMuted;
+      ctx.font = '9px sans-serif';
+      ctx.fillText(s.sub, s.p.x, s.subY);
     }
   }
 
@@ -310,12 +324,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     };
   }
 
-  // 図形の目標半径。スコアリング到着で score、多様性調整到着で adjusted に応じて変わる。
+  // 図形の目標半径。プレスが打つ拍頭（startBeat + 3）で score、
+  // 削り機が打つ拍頭（startBeat + 4）で adjusted に応じて変わる。
   function targetRadius(c: Candidate, beat: number, maxScore: number, maxAdj: number): number {
-    if (beat >= c.startBeat + 3 + MOVE_FRACTION) {
+    if (beat >= c.startBeat + 4) {
       return 5 + 9 * (maxAdj > 0 ? c.adjusted / maxAdj : 0);
     }
-    if (beat >= c.startBeat + 2 + MOVE_FRACTION) {
+    if (beat >= c.startBeat + 3) {
       return 5 + 9 * (maxScore > 0 ? c.score / maxScore : 0);
     }
     return 7;
@@ -337,23 +352,32 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       let alpha = 1;
       let scale = 1;
       let color = TOPICS[c.topic].color;
+      let x = g.x;
       let y = g.y;
       if (g.mode === 'fall') {
         alpha = Math.max(0, 1 - g.age / 1.15);
         color = colors.danger;
-        y += 150 * Math.pow(g.age, 1.8);
+        // 検品機にはじかれ、スクラップ箱の口で止まる
+        y += Math.min(Math.max(0, BIN_MOUTH_Y - g.y), 150 * Math.pow(g.age, 1.8));
       } else if (g.mode === 'shrink') {
-        const s = Math.max(0, 1 - g.age / 0.8);
-        alpha = s;
-        scale = s;
+        // 仕分けアームに払われ、落選箱の口まで落ちてから縮んで消える
         color = colors.lineTrunk;
+        const e = easeInOut(Math.min(1, g.age / 0.5));
+        x = g.x + (REJECT_BIN.x - g.x) * e;
+        y = g.y + (BIN_MOUTH_Y - g.y) * e;
+        if (g.age > 0.5) {
+          const s = Math.max(0, 1 - (g.age - 0.5) / 0.3);
+          alpha = s;
+          scale = s;
+        }
       } else if (g.mode === 'absorb') {
         const s = Math.max(0, 1 - g.age / 0.3);
         alpha = s;
         scale = s;
       } else if (g.spawn) {
-        scale = easeInOut(Math.min(1, g.phase / 0.45));
-        alpha = Math.min(1, g.phase / 0.3);
+        // 搬入口のシャッターが開くタイミング（ハット）に合わせて出る
+        scale = easeInOut(clamp01((g.phase - 0.3) / 0.2));
+        alpha = clamp01((g.phase - 0.3) / 0.15);
       }
       const tr = targetRadius(c, beat, maxScore, maxAdj);
       const r = (radii.get(c.id) ?? 7) + (tr - (radii.get(c.id) ?? 7)) * Math.min(1, dt * 8);
@@ -361,7 +385,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const dim = selectedId !== null && c.agentId !== selectedId;
       ctx.globalAlpha = alpha * (dim ? 0.25 : 1);
       ctx.fillStyle = color;
-      shapePath(ctx, TOPICS[c.topic].shape, g.x, y, Math.max(0.1, r * scale));
+      shapePath(ctx, TOPICS[c.topic].shape, x, y, Math.max(0.1, r * scale));
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -555,7 +579,6 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       }
 
       const phase = beat - Math.floor(beat);
-      const bp = Math.max(0, 1 - phase / 0.3);
 
       // 駅の脈打ち: 各候補が最後に駅へ着いた時刻からの経過で決める。
       pulse.fill(0);
@@ -569,11 +592,34 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         }
       }
 
+      // 機械の状態。このフレームの候補の終端演出から、検品機の点滅と箱の沈み込みを決める。
+      let rejectFlash = false;
+      let scrapSink = 0;
+      let rejectSink = 0;
+      for (const c of world.candidates) {
+        if (c.dropStage === 1) {
+          const age = beat - (c.startBeat + 1 + MOVE_FRACTION);
+          if (age >= 0 && age <= 0.3) rejectFlash = true;
+          if (age > 0.85) {
+            scrapSink = Math.max(scrapSink, 2 * Math.max(0, 1 - (age - 0.85) / 0.45));
+          }
+        } else if (c.dropStage === 4) {
+          const age = beat - (c.startBeat + 4 + MOVE_FRACTION);
+          if (age > 0.5) {
+            rejectSink = Math.max(rejectSink, 2 * Math.max(0, 1 - (age - 0.5) / 0.45));
+          }
+        }
+      }
+      const shutterS = strokeAt(phase, 0.5);
+      const pressS = strokeAt(phase, 0);
+      const armS = strokeAt(phase, 0.75);
+      const accent = isAccent(beat);
+
       ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
       drawDistricts();
-      strokeLine(IN_LINE, colors.lineIn, 10 + bp * 4, 0.3);
-      strokeLine(OUT_LINE, colors.lineOut, 10 + bp * 4, 0.3);
-      strokeLine(TRUNK_LINE, colors.lineTrunk, 10 + bp * 4, 0.3);
+      drawBelt(ctx, IN_LINE, colors.lineIn, colors, beat);
+      drawBelt(ctx, OUT_LINE, colors.lineOut, colors, beat);
+      drawBelt(ctx, TRUNK_LINE, colors.lineTrunk, colors, beat, TRUNK_LINE.length - 1);
       const nAgents = world.agents.length;
       for (let i = 0; i < nAgents; i++) {
         const dim = selectedId !== null && i !== selectedId;
@@ -586,8 +632,24 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         );
       }
       drawLegend();
-      drawStations(bp);
+      drawBin(ctx, SCRAP_BIN, 'スクラップ', scrapSink, colors);
+      drawBin(ctx, REJECT_BIN, '落選', rejectSink, colors);
+      drawBarLamps(ctx, (STATIONS[2].x + STATIONS[3].x) / 2, 232, beat, colors);
+      // 機械の本体（候補より下に来る部分）とラベル
+      drawHopper(ctx, STATION_IN, colors);
+      drawHopper(ctx, STATION_OUT, colors);
+      drawInspector(ctx, STATIONS[1], rejectFlash, colors);
+      drawPress(ctx, STATIONS[2], colors);
+      drawTrimmer(ctx, STATIONS[3], beat, colors);
+      drawSorter(ctx, STATIONS[4], colors);
+      drawLabels();
       drawCandidates(world, beat, dt);
+      // 機械のうち候補の上に重ねる部分
+      drawHopperShutter(ctx, STATION_IN, shutterS, colors);
+      drawHopperShutter(ctx, STATION_OUT, shutterS, colors);
+      drawInspectorBeam(ctx, STATIONS[1], phase, pulse[1], rejectFlash, colors);
+      drawPressJaws(ctx, STATIONS[2], pressS, accent, colors);
+      drawSorterArm(ctx, STATIONS[4], armS, colors);
       drawAgents(world);
       drawParticles();
     },

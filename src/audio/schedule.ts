@@ -1,7 +1,14 @@
 import type { BeatEvents } from '../sim/types';
 
 // 1 ビートに鳴らす音 1 つ分。AudioContext に依存しない純粋なデータ。
-export type NoteKind = 'kick' | 'hat' | 'pluck' | 'ping' | 'thud';
+// 音と画面の対応:
+//   kick  0     スコアリングのプレスと多様性調整の削り機が打つ（4 拍ごとに強い）
+//   hat   0.5   搬入口のシャッターが開き、新しい投稿が出る
+//   thud  0.75  検品機が不良品をはじく
+//   clack 0.75  選抜の仕分けアームが落選品を払い落とす
+//   pluck 0.75〜 投稿がエージェントに届く
+//   ping  pluck の少し後 エージェントが反応する
+export type NoteKind = 'kick' | 'hat' | 'pluck' | 'ping' | 'thud' | 'clack';
 
 export interface NoteSpec {
   atBeats: number; // 拍の頭からの拍数
@@ -20,6 +27,7 @@ export const MAX_REACT_NOTES = 3;
 export const REACT_DELAY = 0.125; // 反応音は到着音の少し後
 export const REACT_FREQ = 880;
 export const THUD_FREQ = 90;
+export const CLACK_FREQ = 1200;
 
 export function topicFreq(topic: number): number {
   const i = Math.min(Math.max(0, Math.floor(topic)), TOPIC_SCALE.length - 1);
@@ -45,6 +53,9 @@ export function scheduleBeat(events: BeatEvents): NoteSpec[] {
 
   if (events.dropped.some((c) => c.dropStage === 1)) {
     notes.push({ atBeats: ARRIVAL_BEAT, kind: 'thud', freq: THUD_FREQ, gain: 1 });
+  }
+  if (events.dropped.some((c) => c.dropStage === 4)) {
+    notes.push({ atBeats: ARRIVAL_BEAT, kind: 'clack', freq: CLACK_FREQ, gain: 1 });
   }
   return notes;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ARPEGGIO_STEP,
   ARRIVAL_BEAT,
+  CLACK_FREQ,
   MAX_ARRIVAL_NOTES,
   REACT_DELAY,
   REACT_FREQ,
@@ -109,6 +110,32 @@ describe('scheduleBeat', () => {
   it('選抜落ちだけでは低い音を鳴らさない', () => {
     const notes = scheduleBeat(ev({ dropped: [cand({ dropStage: 4, dropReason: 'rank' })] }));
     expect(notes.some((n) => n.kind === 'thud')).toBe(false);
+  });
+
+  it('dropStage 4 が複数あってもカチッは 1 つだけ鳴る', () => {
+    const notes = scheduleBeat(
+      ev({
+        dropped: [
+          cand({ dropStage: 4, dropReason: 'rank' }),
+          cand({ dropStage: 4, dropReason: 'rank' }),
+          cand({ dropStage: 4, dropReason: 'rank' }),
+        ],
+      }),
+    );
+    const clacks = notes.filter((n) => n.kind === 'clack');
+    expect(clacks).toHaveLength(1);
+    expect(clacks[0].atBeats).toBe(ARRIVAL_BEAT);
+    expect(clacks[0].freq).toBe(CLACK_FREQ);
+  });
+
+  it('フィルタ落ちだけではカチッを鳴らさない', () => {
+    const notes = scheduleBeat(ev({ dropped: [cand({ dropStage: 1, dropReason: 'bad' })] }));
+    expect(notes.some((n) => n.kind === 'clack')).toBe(false);
+  });
+
+  it('何も落ちないときはカチッを鳴らさない', () => {
+    const notes = scheduleBeat(ev({ delivered: [delivery(0)] }));
+    expect(notes.some((n) => n.kind === 'clack')).toBe(false);
   });
 });
 
