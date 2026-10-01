@@ -4,9 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>X レコメンド・ビートメトロ</title>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <main class="app">
+      <header class="head">
+        <h1>X レコメンド・ビートメトロ</h1>
+        <p class="lead">
+          X（旧 Twitter）のおすすめアルゴリズムを地下鉄の路線図に見立てたシミュレーション。
+          投稿がビートに合わせて駅を進み、エージェントの反応がそれぞれのフィードを少しずつ違うものにしていきます。
+        </p>
+      </header>
+      <canvas id="stage" class="stage"></canvas>
+      <section class="panels">
+        <div id="feed-panel" class="panel"></div>
+        <div id="chart-panel" class="panel"></div>
+      </section>
+      <section id="sliders" class="sliders"></section>
+      <div id="buttons" class="buttons"></div>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
