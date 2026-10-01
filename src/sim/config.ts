@@ -44,8 +44,7 @@ export const LEARN_REPLY = 0.4;
 export const LEARN_IGNORE = 0.06; // 反応が 1 つもないときに減らす割合
 export const FOLLOW_RATE = 0.3; // フォロー外にリプライ・リポストしたときにフォローする確率
 
-export const PIPELINE_BEATS = 5; // 始発駅からエージェントまでの移動回数
-export const MOVE_FRACTION = 0.75; // 1 拍のうち移動に使う割合。残りは駅で止まる
+export const PIPELINE_BEATS = 5; // 発射からエージェントが受け止めるまでの拍数
 
 export const FEED_KEEP = 20;
 export const METRICS_MIN_FEED = 6; // フィードがこの件数に満たないエージェントは指標に含めない

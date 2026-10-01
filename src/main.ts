@@ -5,6 +5,7 @@ import { createAudio } from './audio/audio';
 import { setupControls } from './ui/controls';
 import { createFeedPanel } from './ui/feedPanel';
 import { createChart } from './ui/chart';
+import { buildLegend, wirePanelFold, wireStartCard } from './ui/hud';
 import { DEFAULT_AGENT_COUNT, DEFAULT_BPM, DEFAULT_PARAMS } from './sim/config';
 import type { Params, World } from './sim/types';
 
@@ -51,6 +52,20 @@ function resetWorld(): void {
   controls.setStats(world.stats);
 }
 
+// 設定・見方のパネルは同時に開かない（片方を開くともう片方が閉じる）
+const settingsPanel = must<HTMLElement>('settings-panel');
+const guidePanel = must<HTMLElement>('guide-panel');
+let settingsOpen = false;
+let guideOpen = false;
+function setOverlays(settings: boolean, guide: boolean): void {
+  settingsOpen = settings;
+  guideOpen = guide;
+  settingsPanel.hidden = !settings;
+  guidePanel.hidden = !guide;
+  controls.setSettingsOpen(settings);
+  controls.setGuideOpen(guide);
+}
+
 const controls = setupControls({
   slidersEl: must<HTMLElement>('sliders'),
   buttonsEl: must<HTMLElement>('buttons'),
@@ -67,10 +82,36 @@ const controls = setupControls({
   },
   onSoundChange: (on) => audio.setEnabled(on),
   onReset: () => resetWorld(),
+  onToggleSettings: () => setOverlays(!settingsOpen, false),
+  onToggleGuide: () => setOverlays(false, !guideOpen),
 });
 
-canvas.addEventListener('click', (e) => {
-  selectAgent(renderer.hitTestAgent(e.clientX, e.clientY));
+buildLegend(must<HTMLElement>('legend'));
+
+// パネルの折りたたみ。狭い画面では最初から畳んでおく。
+const feedFold = wirePanelFold(must<HTMLElement>('feed-wrap'));
+const chartFold = wirePanelFold(must<HTMLElement>('chart-wrap'));
+if (window.innerWidth < 800) {
+  feedFold.set(true);
+  chartFold.set(true);
+}
+
+// ブラウザはユーザーの操作なしに音を出せないので、開始カードで音の有無を選ばせる。
+wireStartCard(must<HTMLElement>('start-card'), () => {
+  audio.setEnabled(true);
+  controls.setSoundOn(true);
+});
+
+// canvas 上のドラッグは視点操作なので、押してからほとんど動かずに離したときだけ選択する。
+let dragStart: { x: number; y: number } | null = null;
+canvas.addEventListener('pointerdown', (e) => {
+  dragStart = { x: e.clientX, y: e.clientY };
+});
+canvas.addEventListener('pointerup', (e) => {
+  if (!dragStart) return;
+  const moved = Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y);
+  dragStart = null;
+  if (moved < 6) selectAgent(renderer.hitTestAgent(e.clientX, e.clientY));
 });
 
 resetWorld();

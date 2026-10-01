@@ -3,27 +3,122 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>X レコメンド・ビートファクトリー</title>
+    <title>X レコメンド・ビートオーケストラ</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main class="app">
-      <header class="head">
-        <h1>X レコメンド・ビートファクトリー</h1>
-        <p class="lead">
-          X（旧 Twitter）のおすすめアルゴリズムを工場のラインに見立てたシミュレーション。
-          投稿がビートに合わせて機械から機械へ流れ、機械が投稿を打つ音がそのまま曲になります。
-          エージェントの反応が、それぞれのフィードを少しずつ違うものにしていきます。
-        </p>
-      </header>
-      <canvas id="stage" class="stage"></canvas>
-      <section class="panels">
-        <div id="feed-panel" class="panel"></div>
-        <div id="chart-panel" class="panel"></div>
-      </section>
-      <section id="sliders" class="sliders"></section>
-      <div id="buttons" class="buttons"></div>
-    </main>
+    <div id="stage-wrap" class="stage-wrap">
+      <canvas id="stage"></canvas>
+    </div>
+    <div class="hud">
+      <div class="hud-top">
+        <header class="brand">
+          <h1>X レコメンド・ビートオーケストラ</h1>
+          <p class="lead">投稿がボールになって楽器を鳴らし、おすすめフィードに届くまで</p>
+          <div id="legend" class="legend"></div>
+        </header>
+        <div class="actions">
+          <div id="buttons" class="buttons"></div>
+          <section id="settings-panel" class="panel overlay" hidden aria-label="設定">
+            <h2 class="panel-h">設定</h2>
+            <div id="sliders" class="sliders"></div>
+          </section>
+          <section id="guide-panel" class="panel overlay" hidden aria-label="見方">
+            <h2 class="panel-h">楽器と工程の対応</h2>
+            <table class="guide-table">
+              <thead>
+                <tr>
+                  <th>工程（実際の構成）</th>
+                  <th>楽器</th>
+                  <th>起きること</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>候補取得（Thunder / Phoenix 検索）</td>
+                  <td>2 本のパイプ</td>
+                  <td>フォロー内・フォロー外の投稿が 16 分音符ごとに 1 個ずつ発射される</td>
+                </tr>
+                <tr>
+                  <td>フィルタ</td>
+                  <td>ドラム</td>
+                  <td>通過した投稿がキック・スネア・ハットを鳴らす。スパムや古い投稿はシンバルに弾かれてスクラップ箱へ</td>
+                </tr>
+                <tr>
+                  <td>スコアリング</td>
+                  <td>ビブラフォン</td>
+                  <td>スコアが高い投稿ほど高い音の鍵盤に落ち、大きくなる</td>
+                </tr>
+                <tr>
+                  <td>多様性調整</td>
+                  <td>ベース</td>
+                  <td>同じ投稿者の 2 件目以降とフォロー外の投稿は、弦に当たると小さくなる</td>
+                </tr>
+                <tr>
+                  <td>選抜</td>
+                  <td>ベル</td>
+                  <td>上位 3 件だけがベルを鳴らしてエージェントへ飛ぶ。残りは落選箱へ</td>
+                </tr>
+                <tr>
+                  <td>フィード</td>
+                  <td>エージェントの受け皿</td>
+                  <td>話題ごとの高さの音で届く。反応するとキラッと鳴り、その話題の地区へ寄っていく</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="guide-note">
+              音はすべてボールが当たった瞬間に鳴ります。コードは 4 拍ごとに C → Am → F → G
+              と進みます。ドラッグで視点を回せます。
+            </p>
+          </section>
+        </div>
+      </div>
+      <div class="dock">
+        <section id="feed-wrap" class="panel feed-wrap">
+          <div class="panel-bar">
+            <h2 class="panel-h">フィード</h2>
+            <button
+              class="panel-fold"
+              type="button"
+              aria-expanded="true"
+              aria-controls="feed-panel"
+              aria-label="パネルを折りたたむ"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div id="feed-panel" class="panel-body"></div>
+        </section>
+        <section id="chart-wrap" class="panel chart-wrap">
+          <div class="panel-bar">
+            <h2 class="panel-h">フィードの偏り</h2>
+            <button
+              class="panel-fold"
+              type="button"
+              aria-expanded="true"
+              aria-controls="chart-panel"
+              aria-label="パネルを折りたたむ"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div id="chart-panel" class="panel-body"></div>
+        </section>
+      </div>
+      <div id="start-card" class="start-card">
+        <div class="panel start-inner">
+          <h2 class="start-title">X レコメンド・ビートオーケストラ</h2>
+          <p class="start-desc">投稿がボールになって楽器を鳴らし、おすすめフィードに届くまで</p>
+          <div class="start-actions">
+            <button id="start-sound" class="btn btn-primary" type="button">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6v4h3l4 3.5v-11L5 6H2z" fill="currentColor"/><path d="M11 5.5a3.4 3.4 0 0 1 0 5M12.5 3.6a6 6 0 0 1 0 8.8" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+              <span>音を鳴らして始める</span>
+            </button>
+            <button id="start-mute" class="start-link" type="button">音なしで見る</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

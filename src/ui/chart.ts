@@ -2,7 +2,7 @@ import type { MetricsPoint, World } from '../sim/types';
 
 // 折れ線の色（ライト/ダーク両方で読める 2 色）
 export const CHART_COLORS = { bubble: '#D85A30', similarity: '#378ADD' } as const;
-const CSS_H = 170;
+const CSS_H = 120;
 const PAD_L = 26;
 const PAD_R = 92;
 const PAD_T = 8;
@@ -56,16 +56,14 @@ function cssVar(name: string, fallback: string): string {
 }
 
 export function createChart(el: HTMLElement): Chart {
-  const title = document.createElement('h2');
-  title.className = 'ch-title';
-  title.textContent = 'フィードの偏り';
+  // 見出しはパネル側（index.html の .panel-bar）が持つ
   const desc = document.createElement('p');
   desc.className = 'ch-desc';
   desc.textContent =
     '偏り指数が上がり、類似度が下がるほど、人ごとにフィードが分かれている。';
   const cv = document.createElement('canvas');
   cv.className = 'ch-canvas';
-  el.append(title, desc, cv);
+  el.append(desc, cv);
   const ctx = cv.getContext('2d');
   if (!ctx) return { update() {} };
 
