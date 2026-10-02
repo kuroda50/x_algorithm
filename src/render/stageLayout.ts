@@ -49,7 +49,6 @@ export const SCRAP_MOUTH = p3(SCRAP_BIN.x, BIN_SIZE.h, 0);
 // --- スコアリングのビブラフォン。鍵盤は右上への階段で、
 // スコアが高いほど右上の高い段に当たる ---
 export const VIBE_BAR_LEN = 0.72; // 鍵盤の長さ（x 方向）
-export const VIBE_BAR_T = 0.22; // 鍵盤の厚さ
 
 export function vibeBarHit(i: number): P3 {
   return p3(-3.6 + 0.8 * i, 2.4 + 0.55 * i, 0);
@@ -76,7 +75,7 @@ export const REJECT_BIN = p3(11.0, 0, 0);
 export const REJECT_MOUTH = p3(REJECT_BIN.x, BIN_SIZE.h, 0);
 
 // --- 興味の街（話題の地区が並ぶ円） ---
-export const DISTRICT_CENTER = p3(22, 8, 0);
+export const DISTRICT_CENTER = p3(22.0, 7.6, 0);
 export const DISTRICT_R = 4.4;
 export const DISTRICT_DISC_R = 1.1;
 export const AGENT_R = 0.5; // エージェントの円の半径
@@ -92,7 +91,7 @@ export function districtPos(i: number, n: number): P3 {
 }
 
 // 画面に必ず収める範囲。OrthographicCamera がこの矩形を contain する。
-export const VIEW_RECT = { x0: -17.5, x1: 28.5, y0: -4.5, y1: 16 };
+export const VIEW_RECT = { x0: -18, x1: 29.8, y0: -3.0, y1: 16.2 };
 
 // 同じスロットで発射されるフォロー内・フォロー外の 2 個が打点で重ならないよう、
 // source で進行方向（x）にずらす量。

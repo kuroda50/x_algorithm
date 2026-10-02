@@ -2,12 +2,10 @@ import type { MetricsPoint, World } from '../sim/types';
 
 // 折れ線の色（ライト/ダーク両方で読める 2 色）
 export const CHART_COLORS = { bubble: '#D85A30', similarity: '#378ADD' } as const;
-const CSS_H = 120;
 const PAD_L = 26;
-const PAD_R = 92;
+const PAD_R = 12;
 const PAD_T = 8;
 const PAD_B = 16;
-const LABEL_GAP = 14;
 
 // 2 つのラベルの y 座標が近すぎるとき、順序を保ったまま minGap 以上に離す。
 // a <= b であること。[lo, hi] の範囲に収める。
@@ -56,14 +54,28 @@ function cssVar(name: string, fallback: string): string {
 }
 
 export function createChart(el: HTMLElement): Chart {
-  // 見出しはパネル側（index.html の .panel-bar）が持つ
-  const desc = document.createElement('p');
-  desc.className = 'ch-desc';
-  desc.textContent =
-    '偏り指数が上がり、類似度が下がるほど、人ごとにフィードが分かれている。';
+  // 見出しはパネル側（index.html の .dock-h）が持つ
+  const head = document.createElement('div');
+  head.className = 'ch-head';
+  const makeStat = (color: string, label: string): { stat: HTMLElement; num: HTMLElement } => {
+    const stat = document.createElement('div');
+    stat.className = 'ch-stat';
+    const num = document.createElement('span');
+    num.className = 'ch-num';
+    num.style.color = color;
+    num.textContent = '–';
+    const lbl = document.createElement('span');
+    lbl.className = 'ch-lbl';
+    lbl.textContent = label;
+    stat.append(num, lbl);
+    return { stat, num };
+  };
+  const bubbleStat = makeStat(CHART_COLORS.bubble, '偏り指数');
+  const simStat = makeStat(CHART_COLORS.similarity, '人どうしの類似度');
+  head.append(bubbleStat.stat, simStat.stat);
   const cv = document.createElement('canvas');
   cv.className = 'ch-canvas';
-  el.append(desc, cv);
+  el.append(head, cv);
   const ctx = cv.getContext('2d');
   if (!ctx) return { update() {} };
 
@@ -72,8 +84,8 @@ export function createChart(el: HTMLElement): Chart {
   function draw(): void {
     if (!ctx) return;
     const w = cv.clientWidth;
-    const h = CSS_H;
-    if (w <= 0) return;
+    const h = cv.clientHeight;
+    if (w <= 0 || h <= 0) return;
     const dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
       cv.width = Math.round(w * dpr);
@@ -101,12 +113,18 @@ export function createChart(el: HTMLElement): Chart {
       ctx.textBaseline = 'middle';
       ctx.fillText(String(gy), PAD_L - 5, y);
     }
-    if (points.length === 0) return;
+    if (points.length < 2) {
+      ctx.fillStyle = textCol;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('数拍たつと表示されます', PAD_L + plotW / 2, PAD_T + plotH / 2);
+      return;
+    }
 
     const xAt = xScale(points, plotW, PAD_L);
     const drawLine = (key: 'bubble' | 'similarity', color: string) => {
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 2.2;
       ctx.lineJoin = 'round';
       ctx.beginPath();
       points.forEach((p, i) => {
@@ -119,27 +137,6 @@ export function createChart(el: HTMLElement): Chart {
     };
     drawLine('bubble', CHART_COLORS.bubble);
     drawLine('similarity', CHART_COLORS.similarity);
-
-    const lastP = points[points.length - 1];
-    const labelX = w - PAD_R + 8;
-    const yB = yFor(lastP.bubble);
-    const yS = yFor(lastP.similarity);
-    const bubbleIsUpper = yB <= yS;
-    const [up, lo2] = spreadLabels(
-      bubbleIsUpper ? yB : yS,
-      bubbleIsUpper ? yS : yB,
-      LABEL_GAP,
-      PAD_T + 6,
-      h - PAD_B - 4,
-    );
-    const label = (text: string, color: string, y: number) => {
-      ctx.fillStyle = color;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, labelX, y);
-    };
-    label(`偏り指数 ${lastP.bubble.toFixed(2)}`, CHART_COLORS.bubble, bubbleIsUpper ? up : lo2);
-    label(`類似度 ${lastP.similarity.toFixed(2)}`, CHART_COLORS.similarity, bubbleIsUpper ? lo2 : up);
   }
 
   new ResizeObserver(draw).observe(el);
@@ -147,6 +144,9 @@ export function createChart(el: HTMLElement): Chart {
   return {
     update(world: World) {
       points = world.metrics;
+      const lastP = points[points.length - 1];
+      bubbleStat.num.textContent = lastP ? lastP.bubble.toFixed(2) : '–';
+      simStat.num.textContent = lastP ? lastP.similarity.toFixed(2) : '–';
       draw();
     },
   };

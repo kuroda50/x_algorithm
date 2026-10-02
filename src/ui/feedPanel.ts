@@ -1,4 +1,4 @@
-import { TOPICS, agentColor } from '../sim/config';
+import { TOPICS } from '../sim/config';
 import { feedDistribution } from '../sim/metrics';
 import { maxScore } from '../sim/pipeline';
 import type { Agent, FeedItem, Params, World } from '../sim/types';
@@ -26,46 +26,46 @@ export function authorName(world: World, authorId: number): string {
 }
 
 export interface FeedPanel {
-  // ビートごとに呼ぶ。selectedId が null なら一覧表示。
+  // ビートごとに呼ぶ。selectedId が null なら詳細は案内表示。
   update(world: World, selectedId: number | null, params: Params): void;
 }
 
-export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => void): FeedPanel {
+export interface FeedPanelEls {
+  overview: HTMLElement; // #feed-overview
+  detail: HTMLElement; // #feed-detail
+  detailTitle: HTMLElement; // #feed-detail-title
+}
+
+export function createFeedPanel(els: FeedPanelEls, onSelect: (agentId: number) => void): FeedPanel {
   let shownId: number | null = null;
   let tiles = new Map<number, HTMLElement>();
   let feedEl: HTMLElement | null = null;
-  // 一覧表示の行（エージェントごとの、話題別の区切り）。毎拍作り直すとクリックを取りこぼすので使い回す。
-  let overviewSegs: HTMLElement[][] | null = null;
+  let feedEmptyEl: HTMLElement | null = null;
+  // 一覧表示の行と、話題別の積み上げ棒の区切り。毎拍作り直すとクリックを取りこぼすので使い回す。
+  let overviewRows: HTMLElement[] = [];
+  let overviewSegs: HTMLElement[][] = [];
 
   function clearTiles(): void {
     for (const t of tiles.values()) t.remove();
     tiles = new Map();
   }
 
-  function updateOverview(world: World): void {
-    if (!overviewSegs || overviewSegs.length !== world.agents.length) {
-      renderOverview(world);
-      return;
-    }
+  function updateOverview(world: World, selectedId: number | null): void {
+    if (overviewRows.length !== world.agents.length) renderOverview(world);
     world.agents.forEach((agent, i) => {
       const dist = feedDistribution(agent);
-      overviewSegs![i].forEach((seg, t) => {
+      overviewSegs[i].forEach((seg, t) => {
         seg.style.width = `${(dist ? dist[t] : 0) * 100}%`;
       });
+      overviewRows[i].classList.toggle('sel', agent.id === selectedId);
     });
   }
 
   function renderOverview(world: World): void {
-    clearTiles();
-    feedEl = null;
-    el.textContent = '';
-    const hint = document.createElement('p');
-    hint.className = 'fp-hint';
-    hint.textContent = 'エージェントをクリックするとフィードが見られます';
-    el.append(hint);
+    els.overview.textContent = '';
     const list = document.createElement('div');
     list.className = 'fp-overview';
-    const total = world.agents.length;
+    overviewRows = [];
     overviewSegs = [];
     for (const agent of world.agents) {
       const row = document.createElement('div');
@@ -73,10 +73,7 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
       row.addEventListener('click', () => onSelect(agent.id));
       const name = document.createElement('span');
       name.className = 'fp-ov-name';
-      const dot = document.createElement('span');
-      dot.className = 'fp-ov-dot';
-      dot.style.background = agentColor(agent.id, total);
-      name.append(dot, document.createTextNode(agent.name));
+      name.textContent = agent.name;
       const bar = document.createElement('div');
       bar.className = 'fp-ov-bar';
       const dist = feedDistribution(agent);
@@ -88,26 +85,38 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
         bar.append(seg);
         return seg;
       });
+      overviewRows.push(row);
       overviewSegs.push(segs);
       row.append(name, bar);
       list.append(row);
     }
-    el.append(list);
+    els.overview.append(list);
+  }
+
+  function renderDetailEmpty(): void {
+    shownId = null;
+    clearTiles();
+    feedEl = null;
+    feedEmptyEl = null;
+    els.detailTitle.textContent = '選んだ人のフィード';
+    els.detail.textContent = '';
+    const p = document.createElement('p');
+    p.className = 'fp-empty';
+    p.textContent = 'エージェント（右の丸）か、左の名前をクリックすると、その人のフィードが見られます';
+    els.detail.append(p);
   }
 
   function renderAgent(agent: Agent): void {
-    el.textContent = '';
-    overviewSegs = null;
-    const head = document.createElement('div');
-    head.className = 'fp-head';
-    const name = document.createElement('span');
-    name.className = 'fp-name';
-    name.textContent = agent.name;
-    const follows = document.createElement('span');
-    follows.className = 'fp-follows';
-    follows.textContent = `フォロー ${agent.follows.size} 人`;
-    head.append(name, follows);
+    els.detailTitle.textContent = `${agent.name} のフィード`;
+    els.detail.textContent = '';
+    const grid = document.createElement('div');
+    grid.className = 'fp-detail';
 
+    const left = document.createElement('div');
+    left.className = 'fp-col';
+    const subInterests = document.createElement('p');
+    subInterests.className = 'fp-sub';
+    subInterests.textContent = '興味';
     const interests = document.createElement('div');
     interests.className = 'fp-interests';
     agent.interest.forEach((frac, i) => {
@@ -129,13 +138,26 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
       row.append(nm, track, val);
       interests.append(row);
     });
+    const follows = document.createElement('p');
+    follows.className = 'fp-follows';
+    follows.textContent = `フォロー ${agent.follows.size} 人`;
+    left.append(subInterests, interests, follows);
 
-    const title = document.createElement('p');
-    title.className = 'fp-feed-title';
-    title.textContent = `フィード上位 ${FEED_TOP} 件`;
+    const right = document.createElement('div');
+    right.className = 'fp-col';
+    const subFeed = document.createElement('p');
+    subFeed.className = 'fp-sub';
+    subFeed.textContent = `フィード上位 ${FEED_TOP} 件`;
     feedEl = document.createElement('div');
     feedEl.className = 'fp-feed';
-    el.append(head, interests, title, feedEl);
+    feedEmptyEl = document.createElement('p');
+    feedEmptyEl.className = 'fp-empty';
+    feedEmptyEl.textContent = 'まだ届いていません';
+    feedEl.append(feedEmptyEl);
+    right.append(subFeed, feedEl);
+
+    grid.append(left, right);
+    els.detail.append(grid);
     tiles = new Map();
   }
 
@@ -183,23 +205,25 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
     }
   }
 
+  renderDetailEmpty();
+
   return {
     update(world: World, selectedId: number | null, params: Params): void {
+      updateOverview(world, selectedId);
       const agent = selectedId === null ? undefined : world.agents[selectedId];
       if (!agent) {
-        shownId = null;
-        updateOverview(world);
+        if (shownId !== null) renderDetailEmpty();
         return;
       }
       if (shownId !== selectedId) {
         shownId = selectedId;
         renderAgent(agent);
       }
-      // ヘッダと興味バーは反応で変わるので毎ビート更新
-      const follows = el.querySelector<HTMLElement>('.fp-follows');
+      // フォロー数と興味バーは反応で変わるので毎ビート更新
+      const follows = els.detail.querySelector<HTMLElement>('.fp-follows');
       if (follows) follows.textContent = `フォロー ${agent.follows.size} 人`;
-      const fills = el.querySelectorAll<HTMLElement>('.fp-int-fill');
-      const vals = el.querySelectorAll<HTMLElement>('.fp-int-val');
+      const fills = els.detail.querySelectorAll<HTMLElement>('.fp-int-fill');
+      const vals = els.detail.querySelectorAll<HTMLElement>('.fp-int-val');
       agent.interest.forEach((frac, i) => {
         const f = fills[i];
         const v = vals[i];
@@ -208,6 +232,10 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
       });
       if (!feedEl) return;
       const top = agent.feed.slice(0, FEED_TOP);
+      if (top.length > 0 && feedEmptyEl) {
+        feedEmptyEl.remove();
+        feedEmptyEl = null;
+      }
       const keep = new Set(top.map((it) => it.postId));
       for (const [pid, tile] of tiles) {
         if (!keep.has(pid)) {

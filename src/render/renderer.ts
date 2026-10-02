@@ -10,11 +10,14 @@ import { interestTint } from './agentLook';
 import { buildAgent, buildStage, REST, WHITE } from './instruments';
 import {
   AGENT_R,
+  BELL_R,
+  bellHit,
   clamp01,
   DISTRICT_CENTER,
   DISTRICT_DISC_R,
   districtPos,
   hash01,
+  hitPoint,
   PIPE_IN_MOUTH,
   PIPE_OUT_MOUTH,
   VIEW_RECT,
@@ -38,15 +41,18 @@ export interface Renderer {
 const BALL_CAP = 256; // 同時に出るボールの上限。超えた分は描かない
 const SPARK_CAP = MAX_AGENT_COUNT * 8 + 64;
 const DOT_CAP = MAX_AGENT_COUNT * FEED_KEEP;
+const RIPPLE_CAP = 256; // 当たった瞬間の波紋の上限
 const PULSE_BEATS = 0.5; // 当たったあとの発光が消えるまでの拍数
 const ANTICIP_BEATS = 0.5; // 当たる前に予告の光が入る拍数
 const ANTICIP_KINDS = new Set(['drum', 'vibe', 'bass', 'bell', 'cymbal', 'trap']);
-const FEED_DOT_R = 0.74; // フィードの粒が並ぶ半径
+const RIPPLE_BEATS = 0.6; // 波紋が広がって消えるまでの拍数
+const RIPPLE_KINDS = new Set(['drum', 'vibe', 'bass', 'bell', 'cymbal', 'trap', 'catch']);
 
 // 奥行き（z）は重なり順だけを決める。
 const Z_AGENT = 0.5;
 const Z_FEED_DOT = 0.55;
 const Z_SEL_RING = 0.6;
+const Z_RIPPLE = 0.9;
 const Z_BALL = 1;
 const Z_SPARK = 1.2;
 
@@ -80,9 +86,12 @@ interface Spark {
   color: THREE.Color;
 }
 
+type LabelAlign = 'center' | 'left' | 'right';
+
 interface Label {
   el: HTMLElement;
   anchor: () => P3 | null; // null は隠す
+  align: LabelAlign; // アンカーの点を要素のどこに合わせるか
 }
 
 const noopRenderer: Renderer = {
@@ -156,17 +165,33 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   sparkMesh.frustumCulled = false;
   scene.add(sparkMesh);
 
-  // エージェントの円のまわりに並ぶフィードの粒（全エージェント分を 1 つの InstancedMesh で）
-  const dotMesh = new THREE.InstancedMesh(
-    new THREE.CircleGeometry(1, 10),
+  // エージェントの円のまわりを囲むフィードの輪（1 件ぶんの扇形を FEED_KEEP 個並べる。
+  // 全エージェント分を 1 つの InstancedMesh で）
+  const feedRingMesh = new THREE.InstancedMesh(
+    new THREE.RingGeometry(0.58, 0.72, 6, 1, 0, (Math.PI * 2) / FEED_KEEP),
     new THREE.MeshBasicMaterial({ color: '#ffffff' }),
     DOT_CAP,
   );
-  dotMesh.count = 0;
-  dotMesh.frustumCulled = false;
-  scene.add(dotMesh);
+  feedRingMesh.count = 0;
+  feedRingMesh.frustumCulled = false;
+  scene.add(feedRingMesh);
   const dotWhite = new THREE.Color('#ffffff');
-  for (let i = 0; i < DOT_CAP; i++) dotMesh.setColorAt(i, dotWhite);
+  for (let i = 0; i < DOT_CAP; i++) feedRingMesh.setColorAt(i, dotWhite);
+
+  // 当たった瞬間に打点から広がる波紋（加算合成でじわっと光る）
+  const rippleMesh = new THREE.InstancedMesh(
+    new THREE.RingGeometry(0.86, 1, 32),
+    new THREE.MeshBasicMaterial({
+      color: '#ffffff',
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    RIPPLE_CAP,
+  );
+  rippleMesh.count = 0;
+  rippleMesh.frustumCulled = false;
+  scene.add(rippleMesh);
 
   // エージェントの円（最大数だけ作り置きして表示数を変える）
   const agents: { group: THREE.Group; mat: THREE.MeshBasicMaterial }[] = [];
@@ -195,40 +220,77 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const anticipMap = new Map<string, number>();
 
   // --- ラベル ---
-  function addLabel(main: string, anchor: () => P3 | null, cls = ''): HTMLElement {
+  function addLabel(
+    main: string,
+    anchor: () => P3 | null,
+    cls = '',
+    align: LabelAlign = 'center',
+  ): HTMLElement {
     const el = document.createElement('div');
     el.className = `stage-label ${cls}`;
     el.textContent = main;
     labelLayer.appendChild(el);
-    labels.push({ el, anchor });
+    labels.push({ el, anchor, align });
     return el;
   }
 
-  // 工程名。パイプの 2 つは口の少し上、ほかは床の下に横一列。
-  addLabel('フォロー内', () => ({ x: -15.6, y: PIPE_IN_MOUTH.y + 1.0, z: 0 }));
-  addLabel('フォロー外', () => ({ x: -15.6, y: PIPE_OUT_MOUTH.y + 1.0, z: 0 }));
-  addLabel('フィルタ', () => ({ x: -9.8, y: -1.0, z: 0 }));
-  addLabel('スコアリング', () => ({ x: 0, y: -1.0, z: 0 }));
-  addLabel('多様性調整', () => ({ x: 7.15, y: -1.0, z: 0 }));
-  addLabel('選抜', () => ({ x: 14.4, y: -1.0, z: 0 }));
-  addLabel('除外', () => ({ x: -5.2, y: -1.0, z: 0 }), 'dim');
-  addLabel('落選', () => ({ x: 11.0, y: -1.0, z: 0 }), 'dim');
+  // 工程のラベル（番号・工程名・一言を 1 つの要素に入れる）
+  function addStepLabel(num: number, name: string, caption: string, anchor: () => P3 | null): void {
+    const el = document.createElement('div');
+    el.className = 'stage-label step';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'step-name';
+    const numEl = document.createElement('span');
+    numEl.className = 'step-num';
+    numEl.textContent = String(num);
+    nameEl.appendChild(numEl);
+    nameEl.appendChild(document.createTextNode(name));
+    const capEl = document.createElement('div');
+    capEl.className = 'step-cap';
+    capEl.textContent = caption;
+    el.appendChild(nameEl);
+    el.appendChild(capEl);
+    labelLayer.appendChild(el);
+    labels.push({ el, anchor, align: 'center' });
+  }
+
+  // 工程名。候補取得はパイプの下、ほかは床の下に横一列。
+  addStepLabel(1, '候補取得', 'フォロー内・外から集める', () => ({ x: -15.2, y: 9.6, z: 0 }));
+  addStepLabel(2, 'フィルタ', 'スパム・古い投稿を弾く', () => ({ x: -9.8, y: -1.6, z: 0 }));
+  addStepLabel(3, 'スコアリング', '反応されそうなほど高い音', () => ({ x: 0, y: -1.6, z: 0 }));
+  addStepLabel(4, '多様性調整', '同じ投稿者を抑える', () => ({ x: 7.15, y: -1.6, z: 0 }));
+  addStepLabel(5, '選抜', '上位 3 件だけ通す', () => ({ x: 14.4, y: -1.6, z: 0 }));
+  addStepLabel(6, 'フィード', '反応した話題に染まる', () => ({
+    x: DISTRICT_CENTER.x,
+    y: -1.6,
+    z: 0,
+  }));
+  addLabel('フォロー内', () => ({ x: -16.0, y: PIPE_IN_MOUTH.y, z: 0 }), 'pipe-in');
+  addLabel('フォロー外', () => ({ x: -16.0, y: PIPE_OUT_MOUTH.y, z: 0 }), 'pipe-out');
+  addLabel('除外', () => ({ x: -5.2, y: -0.7, z: 0 }), 'dim');
+  addLabel('落選', () => ({ x: 11.0, y: -0.7, z: 0 }), 'dim');
+  for (let i = 0; i < 3; i++) {
+    // 選抜の順位をベルの台座の中央に出す
+    const hit = bellHit(i);
+    const cy = hit.y - BELL_R;
+    addLabel(String(i + 1), () => ({ x: hit.x, y: (cy - 0.6) / 2, z: 0 }), 'rank');
+  }
   TOPICS.forEach((t, i) => {
-    // 街の中心から見て外向きに、地区の円の縁から 0.6 離す
+    // 街の中心から見て外向きに、地区の円の縁から 0.5 離す
+    const p = districtPos(i, TOPICS.length);
+    const dx = p.x - DISTRICT_CENTER.x;
+    const dy = p.y - DISTRICT_CENTER.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const align: LabelAlign = dx / d > 0.3 ? 'left' : dx / d < -0.3 ? 'right' : 'center';
     const el = addLabel(
       t.name,
-      () => {
-        const p = districtPos(i, TOPICS.length);
-        const dx = p.x - DISTRICT_CENTER.x;
-        const dy = p.y - DISTRICT_CENTER.y;
-        const d = Math.hypot(dx, dy) || 1;
-        return {
-          x: p.x + (dx / d) * (DISTRICT_DISC_R + 0.6),
-          y: p.y + (dy / d) * (DISTRICT_DISC_R + 0.6),
-          z: 0,
-        };
-      },
+      () => ({
+        x: p.x + (dx / d) * (DISTRICT_DISC_R + 0.5),
+        y: p.y + (dy / d) * (DISTRICT_DISC_R + 0.5),
+        z: 0,
+      }),
       'topic',
+      align,
     );
     el.style.color = t.color;
   });
@@ -245,8 +307,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       el.textContent = a.name;
       labelLayer.appendChild(el);
       agentLabels.push(el);
-      // エージェント名は選択中のものだけ出す（円の下）
-      labels.push({ el, anchor: () => (i === selectedId ? agentAnchor(i) : null) });
+      // エージェント名は全員ぶん常に出す（円の中）
+      labels.push({ el, anchor: () => agentAnchor(i), align: 'center' });
     });
   }
 
@@ -256,6 +318,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const tmpV = new THREE.Vector3();
   const tmpS = new THREE.Vector3();
   const tmpC = new THREE.Color();
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
   function setInstance(
     mesh: THREE.InstancedMesh,
@@ -264,8 +327,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     sx: number,
     sy: number,
     c: THREE.Color,
+    rot = 0, // z 軸まわりの回転（ラジアン）
   ) {
     tmpV.set(p.x, p.y, p.z);
+    tmpQ.setFromAxisAngle(Z_AXIS, rot);
     tmpS.set(Math.max(sx, 1e-4), Math.max(sy, 1e-4), 1);
     tmpM.compose(tmpV, tmpQ, tmpS);
     mesh.setMatrixAt(i, tmpM);
@@ -284,7 +349,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function agentAnchor(i: number): P3 | null {
     if (i >= motion.count()) return null;
     const p = agentPos(i);
-    return { x: p.x, y: p.y - AGENT_R - 0.35, z: p.z };
+    return { x: p.x, y: p.y, z: p.z };
   }
 
   // ワールド座標 → canvas 内の CSS ピクセル。カメラの後ろなら null。
@@ -312,7 +377,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         continue;
       }
       l.el.style.display = '';
-      l.el.style.transform = `translate(-50%, -50%) translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px)`;
+      const ax = l.align === 'left' ? '0' : l.align === 'right' ? '-100%' : '-50%';
+      l.el.style.transform = `translate(${ax}, -50%) translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px)`;
     }
   }
 
@@ -467,29 +533,28 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         .copy(WHITE_C)
         .lerp(TOPIC_COLORS[tint.topic], tint.amount)
         .multiplyScalar(dim ? 0.35 : 1);
-      // フィードの話題構成を円のまわりの粒で示す（足りない分は暗い粒）
-      const feed = world.agents[i].feed;
+      agentLabels[i]?.classList.toggle('sel', i === selectedId);
+      // フィードの話題構成を円を囲む輪で示す（話題順に並べ替えて、同じ話題がひとかたまりの弧に。
+      // 足りない分は暗い区間。元の feed は並べ替えない）
+      const feed = [...world.agents[i].feed].sort((x, y) => x.topic - y.topic);
+      const step = (Math.PI * 2) / FEED_KEEP;
       for (let k = 0; k < FEED_KEEP && d < DOT_CAP; k++, d++) {
-        const ang = (k / FEED_KEEP) * Math.PI * 2 - Math.PI / 2;
         const item = feed[k];
         tmpC.set(item ? TOPICS[item.topic].color : '#232936').multiplyScalar(dim ? 0.3 : 1);
         setInstance(
-          dotMesh,
+          feedRingMesh,
           d,
-          {
-            x: p.x + Math.cos(ang) * FEED_DOT_R,
-            y: p.y + Math.sin(ang) * FEED_DOT_R,
-            z: Z_FEED_DOT,
-          },
-          0.07,
-          0.07,
+          { x: p.x, y: p.y, z: Z_FEED_DOT },
+          1,
+          1,
           tmpC,
+          Math.PI / 2 - (k + 0.5) * step, // 真上から時計回りに並べる
         );
       }
     }
-    dotMesh.count = d;
-    dotMesh.instanceMatrix.needsUpdate = true;
-    if (dotMesh.instanceColor) dotMesh.instanceColor.needsUpdate = true;
+    feedRingMesh.count = d;
+    feedRingMesh.instanceMatrix.needsUpdate = true;
+    if (feedRingMesh.instanceColor) feedRingMesh.instanceColor.needsUpdate = true;
     for (let i = n; i < agents.length; i++) agents[i].group.visible = false;
     if (selectedId !== null && selectedId < n) {
       const p = agentPos(selectedId);
@@ -527,12 +592,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     stage.drums.forEach((d, i) => {
       const p = pulse('drum', i);
       glow(d.mat, 'drum', i);
-      d.group.scale.setScalar(1 + (d.kick ? 0.18 : 0.08) * p);
+      d.group.scale.setScalar(1 + (d.kick ? 0.22 : 0.14) * p);
     });
     stage.vibeBars.forEach((b, i) => {
       const p = pulse('vibe', i);
       glow(b.mat, 'vibe', i);
-      b.mesh.position.y = b.restY - 0.07 * p;
+      b.mesh.position.y = b.restY - 0.12 * p;
     });
     stage.bassStrings.forEach((s, i) => {
       const p = pulse('bass', i);
@@ -542,7 +607,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     stage.bells.forEach((b, i) => {
       const p = pulse('bell', i);
       glow(b.mat, 'bell', i);
-      b.mesh.scale.setScalar(1 + 0.2 * p);
+      b.mesh.scale.setScalar(1 + 0.25 * p);
     });
     glow(stage.cymbalBar.mat, 'cymbal');
     stage.cymbalBar.mesh.rotation.z =
@@ -565,8 +630,36 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const frac = beat - Math.floor(beat);
     let beatPulse = Math.exp(-frac * 5);
     if (Math.floor(beat) % 4 === 0) beatPulse *= 1.6;
-    for (const r of stage.bgRings) r.scale.setScalar(1 + 0.05 * beatPulse);
     bgColor.copy(BG0).lerp(BG1, Math.min(1, 0.6 * beatPulse));
+  }
+
+  // 当たった瞬間の波紋。状態は持たず、毎フレーム時刻表から計算する（applyPulses と同じ考え方）。
+  const RIPPLE_GRAY = new THREE.Color('#8a90a2');
+  function drawRipples(world: World, beat: number): void {
+    let n = 0;
+    for (const c of world.candidates) {
+      const dim = selectedId !== null && c.agentId !== selectedId ? 0.35 : 1;
+      for (const h of timeline(c)) {
+        if (!RIPPLE_KINDS.has(h.kind)) continue;
+        const age = beat - h.time;
+        if (age < 0 || age > RIPPLE_BEATS) continue;
+        if (n >= RIPPLE_CAP) break;
+        const t = age / RIPPLE_BEATS;
+        const fade = (1 - t) * (1 - t) * dim;
+        if (h.kind === 'cymbal' || h.kind === 'trap') {
+          tmpC.copy(RIPPLE_GRAY).multiplyScalar(fade);
+        } else {
+          tmpC.copy(TOPIC_COLORS[c.topic]).multiplyScalar(fade);
+        }
+        const p = hitPoint(h, c, agentPos(c.agentId));
+        const r = 0.25 + 1.3 * t;
+        setInstance(rippleMesh, n++, { x: p.x, y: p.y, z: Z_RIPPLE }, r, r, tmpC);
+      }
+      if (n >= RIPPLE_CAP) break;
+    }
+    rippleMesh.count = n;
+    rippleMesh.instanceMatrix.needsUpdate = true;
+    if (rippleMesh.instanceColor) rippleMesh.instanceColor.needsUpdate = true;
   }
 
   return {
@@ -608,6 +701,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       applyPulses(world, beat);
       applyBeatPulse(beat);
       drawBalls(world, beat);
+      drawRipples(world, beat);
       drawSparks(dt);
       drawAgents(world);
       placeLabels();

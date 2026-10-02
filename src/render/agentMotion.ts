@@ -17,9 +17,9 @@ export interface AgentState {
 
 const SPRING_K = 60;
 const SPRING_D = 9;
-const REPEL_DIST = 1.75; // 中心間がこれ未満だと反発する
+const REPEL_DIST = 1.6; // 中心間がこれ未満だと反発する
 const REPEL_K = 160;
-const WANDER = 0.28; // ふらつきの幅
+const WANDER = 0.12; // ふらつきの幅
 const GRAV = 14; // 跳ねの重力
 const BOUND_R = DISTRICT_R - 0.2; // 街の円の内側に留める
 
@@ -28,14 +28,18 @@ export interface Vec2 {
   y: number;
 }
 
-// reset 時の初期位置。黄金角の螺旋で街の中心の周りに散らす。
-export function initialAgentPos(i: number): Vec2 {
+// エージェント i（全 n 体）の定位置。街の中心からのずれ。ひまわりの種の並び。
+export function homeOffset(i: number, n: number): Vec2 {
+  const c = Math.min(0.95, 3.9 / Math.sqrt(Math.max(1, n)));
+  const r = c * Math.sqrt(i + 0.5);
   const a = i * 2.399963229728653;
-  const r = 0.9 + 0.55 * Math.sqrt(i);
-  return {
-    x: DISTRICT_CENTER.x + Math.cos(a) * r,
-    y: DISTRICT_CENTER.y + Math.sin(a) * r,
-  };
+  return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+}
+
+// reset 時の初期位置。各エージェントの定位置に置く。
+export function initialAgentPos(i: number, n: number): Vec2 {
+  const h = homeOffset(i, n);
+  return { x: DISTRICT_CENTER.x + h.x, y: DISTRICT_CENTER.y + h.y };
 }
 
 export interface AgentMotion {
@@ -52,23 +56,31 @@ export function createAgentMotion(): AgentMotion {
   let t = 0;
 
   // 興味ベクトル（interest^1.5 を正規化）で地区を重み付き平均し、ゆっくりしたふらつきを足す。
-  function target(i: number, interest: number[]): Vec2 {
+  // 興味が均一なほど各自の定位置（homeOffset）に散り、偏るほど地区に吸い寄せられる。
+  function target(i: number, interest: number[], agentCount: number): Vec2 {
     const n = interest.length;
     let sx = 0;
     let sy = 0;
     let sw = 0;
+    let mx = 0;
     for (let j = 0; j < n; j++) {
-      const w = Math.pow(Math.max(0, interest[j]), 1.5);
+      const v = Math.max(0, interest[j]);
+      const w = Math.pow(v, 1.5);
       const d = districtPos(j, n);
       sx += d.x * w;
       sy += d.y * w;
       sw += w;
+      if (v > mx) mx = v;
     }
     const bx = sw > 0 ? sx / sw : DISTRICT_CENTER.x;
     const by = sw > 0 ? sy / sw : DISTRICT_CENTER.y;
+    // 偏りの強さ 0..1。均一（最大値 = 1/n）なら 0、1 つに集中なら 1
+    const den = 1 - 1 / Math.max(1, n);
+    const conc = den > 0 ? Math.min(1, Math.max(0, (mx - 1 / n) / den)) : 0;
+    const h = homeOffset(i, agentCount);
     return {
-      x: bx + Math.sin(t * 0.55 + i * 2.17) * WANDER,
-      y: by + Math.cos(t * 0.47 + i * 1.71) * WANDER,
+      x: bx + h.x * (1 - conc) + Math.sin(t * 0.55 + i * 2.17) * WANDER,
+      y: by + h.y * (1 - conc) + Math.cos(t * 0.47 + i * 1.71) * WANDER,
     };
   }
 
@@ -76,7 +88,7 @@ export function createAgentMotion(): AgentMotion {
     reset(count) {
       st.length = 0;
       for (let i = 0; i < count; i++) {
-        const p = initialAgentPos(i);
+        const p = initialAgentPos(i, count);
         st.push({ x: p.x, y: p.y, hop: 0, vx: 0, vy: 0, vhop: 0, pop: 0 });
       }
     },
@@ -87,7 +99,7 @@ export function createAgentMotion(): AgentMotion {
       if (st.length !== n) api.reset(n);
       for (let i = 0; i < n; i++) {
         const s = st[i];
-        const tg = target(i, world.agents[i].interest);
+        const tg = target(i, world.agents[i].interest, n);
         s.vx += ((tg.x - s.x) * SPRING_K - s.vx * SPRING_D) * dt;
         s.vy += ((tg.y - s.y) * SPRING_K - s.vy * SPRING_D) * dt;
         s.pop *= Math.exp(-dt * 4);

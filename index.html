@@ -14,6 +14,7 @@
       <div class="hud-top">
         <header class="brand">
           <h1>X レコメンド・ビートオーケストラ</h1>
+          <p class="tagline">投稿が楽器を鳴らして、おすすめに届くまで</p>
         </header>
         <div class="actions">
           <div id="buttons" class="buttons"></div>
@@ -22,72 +23,80 @@
             <div id="sliders" class="sliders"></div>
           </section>
           <section id="guide-panel" class="panel overlay" hidden aria-label="見方">
-            <h2 class="panel-h">楽器と工程の対応</h2>
-            <table class="guide-table">
-              <thead>
-                <tr>
-                  <th>工程（実際の構成）</th>
-                  <th>画面</th>
-                  <th>起きること</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>候補取得（Thunder / Phoenix 検索）</td>
-                  <td>左上の 2 本のパイプ</td>
-                  <td>フォロー内（塗りつぶした丸）とフォロー外（輪）の投稿が、16 分音符ごとに 1 個ずつ発射される</td>
-                </tr>
-                <tr>
-                  <td>フィルタ</td>
-                  <td>ドラム（丸）</td>
-                  <td>通過した投稿がキック・スネア・ハットを鳴らす。スパムや古い投稿は上のバーに弾かれ、灰色になって除外の箱へ</td>
-                </tr>
-                <tr>
-                  <td>スコアリング</td>
-                  <td>ビブラフォン（階段）</td>
-                  <td>スコアが高い投稿ほど高い段に落ち、大きくなる</td>
-                </tr>
-                <tr>
-                  <td>多様性調整</td>
-                  <td>ベース（4 本の弦）</td>
-                  <td>同じ投稿者の 2 件目以降とフォロー外の投稿は、弦に当たると小さくなる</td>
-                </tr>
-                <tr>
-                  <td>選抜</td>
-                  <td>ベル（3 つの半円）</td>
-                  <td>上位 3 件だけがベルを鳴らしてエージェントへ飛ぶ。残りは灰色になって落選の箱へ</td>
-                </tr>
-                <tr>
-                  <td>フィード</td>
-                  <td>右の丸（エージェント）</td>
-                  <td>届いた投稿に反応すると、その話題の地区へ寄っていき、その話題の色に染まっていく</td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="guide-note">
-              色がついているのは話題だけです（投稿・地区・エージェント）。白いものはアルゴリズムの装置です。エージェントは最初は白く、興味が偏るほどその話題の色に染まります。エージェントをクリックすると、その人のフィードと、フィードの偏りの推移が見られます。
-            </p>
+            <h2 class="panel-h">見方</h2>
+            <ol class="guide-steps">
+              <li>
+                <span class="g-num">1</span>
+                <div>
+                  <b>候補取得</b><span class="g-inst">2 本のパイプ</span>
+                  <p>フォロー内とフォロー外の投稿が、16 分音符ごとに 1 個ずつ発射される</p>
+                </div>
+              </li>
+              <li>
+                <span class="g-num">2</span>
+                <div>
+                  <b>フィルタ</b><span class="g-inst">ドラム</span>
+                  <p>通過した投稿がドラムを鳴らす。スパムや古い投稿は上のバーに弾かれ、灰色になって除外の箱へ落ちる</p>
+                </div>
+              </li>
+              <li>
+                <span class="g-num">3</span>
+                <div>
+                  <b>スコアリング</b><span class="g-inst">ビブラフォン</span>
+                  <p>スコアが高い投稿ほど高い鍵盤（高い音）に落ち、大きくなる</p>
+                </div>
+              </li>
+              <li>
+                <span class="g-num">4</span>
+                <div>
+                  <b>多様性調整</b><span class="g-inst">ベース</span>
+                  <p>同じ投稿者の 2 件目以降とフォロー外の投稿は、弦に当たると小さくなる</p>
+                </div>
+              </li>
+              <li>
+                <span class="g-num">5</span>
+                <div>
+                  <b>選抜</b><span class="g-inst">ベル</span>
+                  <p>上位 3 件だけがベルを鳴らしてエージェントへ飛ぶ。残りは落選の箱へ落ちる</p>
+                </div>
+              </li>
+              <li>
+                <span class="g-num">6</span>
+                <div>
+                  <b>フィード</b><span class="g-inst">右の丸（エージェント）</span>
+                  <p>反応した話題の地区へ寄り、その話題の色に染まっていく。まわりの輪はフィードの話題の割合</p>
+                </div>
+              </li>
+            </ol>
+            <ul class="guide-legend">
+              <li><i class="g-ico g-in" aria-hidden="true"></i>塗りつぶした丸： フォロー内の投稿</li>
+              <li><i class="g-ico g-out" aria-hidden="true"></i>輪： フォロー外の投稿</li>
+              <li><i class="g-ico g-dead" aria-hidden="true"></i>灰色の丸： 除外・落選した投稿</li>
+              <li>
+                <i class="g-ico g-topics" aria-hidden="true"></i>色： 話題（猫・テック・ニュース・ゲーム・料理）。白いものはアルゴリズムの装置
+              </li>
+            </ul>
           </section>
         </div>
       </div>
-      <div class="dock" id="dock" hidden>
-        <section id="feed-wrap" class="panel feed-wrap">
-          <div class="panel-bar">
-            <h2 class="panel-h">フィード</h2>
-          </div>
-          <div id="feed-panel" class="panel-body"></div>
+      <div class="dock" id="dock">
+        <section class="dock-col">
+          <h2 class="dock-h">みんなのフィード</h2>
+          <div id="feed-overview" class="dock-body"></div>
         </section>
-        <section id="chart-wrap" class="panel chart-wrap">
-          <div class="panel-bar">
-            <h2 class="panel-h">フィードの偏り</h2>
-          </div>
-          <div id="chart-panel" class="panel-body"></div>
+        <section class="dock-col">
+          <h2 class="dock-h" id="feed-detail-title">選んだ人のフィード</h2>
+          <div id="feed-detail" class="dock-body"></div>
+        </section>
+        <section class="dock-col">
+          <h2 class="dock-h">フィードの偏り</h2>
+          <div id="chart-panel" class="dock-body"></div>
         </section>
       </div>
       <div id="start-card" class="start-card">
-        <div class="panel start-inner">
+        <div class="start-inner">
           <h2 class="start-title">X レコメンド・ビートオーケストラ</h2>
-          <p class="start-desc">投稿がボールになって楽器を鳴らし、おすすめフィードに届くまで</p>
+          <p class="start-desc">投稿がボールになって楽器を鳴らし、おすすめフィードに届くまで。人ごとにフィードが偏っていく様子が見られます。</p>
           <div class="start-actions">
             <button id="start-sound" class="btn btn-primary" type="button">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6v4h3l4 3.5v-11L5 6H2z" fill="currentColor"/><path d="M11 5.5a3.4 3.4 0 0 1 0 5M12.5 3.6a6 6 0 0 1 0 8.8" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>

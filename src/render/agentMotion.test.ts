@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Agent, World } from '../sim/types';
-import { createAgentMotion, initialAgentPos } from './agentMotion';
+import { createAgentMotion, homeOffset, initialAgentPos } from './agentMotion';
 import { DISTRICT_CENTER, DISTRICT_R, districtPos } from './stageLayout';
 
 function mkAgent(id: number, interest: number[]): Agent {
@@ -121,9 +121,41 @@ describe('createAgentMotion', () => {
 
 describe('initialAgentPos', () => {
   it('決定的で重ならない', () => {
-    const a = initialAgentPos(0);
-    const b = initialAgentPos(1);
-    expect(initialAgentPos(0)).toEqual(a);
+    const a = initialAgentPos(0, 8);
+    const b = initialAgentPos(1, 8);
+    expect(initialAgentPos(0, 8)).toEqual(a);
     expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(0.2);
+  });
+});
+
+describe('homeOffset', () => {
+  it('決定的である', () => {
+    expect(homeOffset(3, 8)).toEqual(homeOffset(3, 8));
+    expect(homeOffset(0, 24)).toEqual(homeOffset(0, 24));
+  });
+
+  it('i が違えば位置が違う', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 24; i++) {
+      const p = homeOffset(i, 24);
+      const key = `${p.x.toFixed(3)},${p.y.toFixed(3)}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
+  });
+
+  it('n = 24 でも半径 4.0 以内に収まる', () => {
+    for (let i = 0; i < 24; i++) {
+      const p = homeOffset(i, 24);
+      expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(4.0);
+    }
+  });
+
+  it('n = 8 で隣り合う 2 体が 1.0 以上離れる', () => {
+    for (let i = 0; i < 7; i++) {
+      const a = homeOffset(i, 8);
+      const b = homeOffset(i + 1, 8);
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(1.0);
+    }
   });
 });

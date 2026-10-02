@@ -32,15 +32,19 @@ let paused = false;
 let selected: number | null = null;
 let last = performance.now();
 
-const feedPanel = createFeedPanel(must<HTMLElement>('feed-panel'), (id) => selectAgent(id));
+const feedPanel = createFeedPanel(
+  {
+    overview: must<HTMLElement>('feed-overview'),
+    detail: must<HTMLElement>('feed-detail'),
+    detailTitle: must<HTMLElement>('feed-detail-title'),
+  },
+  (id) => selectAgent(id),
+);
 const chart = createChart(must<HTMLElement>('chart-panel'));
-const dock = must<HTMLElement>('dock');
 
 function selectAgent(id: number | null): void {
   selected = id === selected ? null : id;
   renderer.setSelectedAgent(selected);
-  // パネルは選択中だけ出す。隠れている間は大きさが 0 で描かれないことがあるので、出し直すたびに更新する。
-  dock.hidden = selected === null;
   feedPanel.update(world, selected, params);
   chart.update(world);
 }
@@ -51,10 +55,8 @@ function resetWorld(): void {
   selected = null;
   renderer.reset(world);
   renderer.setSelectedAgent(null);
-  dock.hidden = true;
   feedPanel.update(world, null, params);
   chart.update(world);
-  controls.setStats(world.stats);
 }
 
 // 設定・見方のパネルは同時に開かない（片方を開くともう片方が閉じる）
@@ -122,7 +124,6 @@ function frame(ts: number): void {
       audio.onBeat(world, events, bpm, (beat - world.beat) * (60 / bpm));
       feedPanel.update(world, selected, params);
       chart.update(world);
-      controls.setStats(world.stats);
     }
   }
   renderer.draw(world, beat, dt);
