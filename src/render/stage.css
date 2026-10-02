@@ -1,0 +1,89 @@
+/* ステージのラベル・反応アイコン用の DOM レイヤー。renderer.ts から読み込む。 */
+
+.stage-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.stage-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: #8a90a2;
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.stage-label.dim {
+  color: #4c5160;
+}
+
+.stage-label.topic {
+  /* 色は JS から話題の色を入れる */
+  font-size: 11px;
+}
+
+.stage-label.agent {
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.stage-no-webgl {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e9ecf4;
+  font-size: 13px;
+}
+
+/* 配信の反応アイコン。発火した位置から上へ浮かんで 1 秒で消える。
+   絵文字は使わず、文字と CSS で描く。--dx は出す位置の横ずらし。 */
+.stage-react {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  font-size: 15px;
+  line-height: 1;
+  color: #fff;
+  animation: stage-react-float 1s ease-out forwards;
+}
+
+.stage-react.reply {
+  width: 16px;
+  height: 12px;
+  border: 1.2px solid currentColor;
+  border-radius: 6px;
+  font-size: 9px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 1px;
+}
+
+.stage-react.follow {
+  font-size: 10px;
+  color: #9aa0b0;
+  white-space: nowrap;
+}
+
+@keyframes stage-react-float {
+  from {
+    transform: translate(calc(-50% + var(--dx, 0px)), -50%);
+    opacity: 1;
+  }
+  to {
+    transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% - 64px));
+    opacity: 0;
+  }
+}

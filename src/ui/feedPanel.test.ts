@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { maxScore, scoreBarWidth } from './feedPanel';
+import { maxScore } from '../sim/pipeline';
+import { scoreBarWidth } from './feedPanel';
 import { DEFAULT_PARAMS } from '../sim/config';
 import type { Params } from '../sim/types';
 

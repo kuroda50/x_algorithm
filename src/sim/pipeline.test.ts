@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { CANDIDATES_IN, DEFAULT_PARAMS, POST_MAX_AGE, SELECT_K, TOPICS } from './config';
-import { applyDiversity, checkFilter, runPipeline, scorePost, selectTopK } from './pipeline';
+import {
+  CANDIDATES_IN,
+  CANDIDATES_OUT,
+  DEFAULT_PARAMS,
+  POST_MAX_AGE,
+  SELECT_K,
+  TOPICS,
+} from './config';
+import {
+  applyDiversity,
+  checkFilter,
+  maxScore,
+  runPipeline,
+  scorePost,
+  selectTopK,
+} from './pipeline';
 import { createWorld } from './world';
 import type { Candidate, Params, Post } from './types';
 
@@ -28,11 +42,14 @@ function mkCand(p: Partial<Candidate>): Candidate {
     authorId: 0,
     source: 'in',
     startBeat: 0,
+    slot: 0,
     pLike: 0,
     pReply: 0,
     pRepost: 0,
     score: 0,
+    scoreNorm: 0,
     adjusted: 0,
+    rank: -1,
     dropStage: null,
     dropReason: null,
     ...p,
@@ -153,5 +170,69 @@ describe('選抜', () => {
     expect(
       cands.filter((c) => c.dropStage === null).length,
     ).toBeLessThanOrEqual(SELECT_K);
+  });
+});
+
+describe('発射位置と順位', () => {
+  it('slot はフォロー内・フォロー外それぞれで 0,1,2,3 になる', () => {
+    const world = createWorld(7, 4);
+    const agent = world.agents[0];
+    const inAuthor = world.authors[0];
+    const outAuthor = world.authors.find((a) => a.id !== inAuthor.id)!;
+    agent.follows = new Set([inAuthor.id]);
+    world.posts.clear();
+    for (let i = 0; i < CANDIDATES_IN; i++) {
+      const p = mkPost({ authorId: inAuthor.id, createdBeat: world.beat });
+      world.posts.set(p.id, p);
+    }
+    for (let i = 0; i < CANDIDATES_OUT; i++) {
+      const p = mkPost({ authorId: outAuthor.id, createdBeat: world.beat });
+      world.posts.set(p.id, p);
+    }
+    const cands = runPipeline(world, agent, DEFAULT_PARAMS);
+    const slots = (source: 'in' | 'out') =>
+      cands
+        .filter((c) => c.source === source)
+        .map((c) => c.slot)
+        .sort();
+    expect(slots('in')).toEqual([0, 1, 2, 3]);
+    expect(slots('out')).toEqual([0, 1, 2, 3]);
+  });
+
+  it('フィルタを抜けた候補に adjusted の大きい順で rank が入る', () => {
+    const cands = [
+      mkCand({ dropStage: 1, dropReason: 'bad' }),
+      ...Array.from({ length: 8 }, (_, i) => mkCand({ adjusted: 8 - i })),
+    ];
+    selectTopK(cands);
+    const alive = cands.filter((c) => c.dropStage !== 1);
+    const sorted = [...alive].sort((a, b) => b.adjusted - a.adjusted);
+    sorted.forEach((c, i) => expect(c.rank).toBe(i));
+    // 通過は rank 0..SELECT_K-1、落選は SELECT_K 以上
+    for (const c of alive) {
+      expect(c.dropStage).toBe(c.rank < SELECT_K ? null : 4);
+    }
+    // フィルタで落ちた候補は rank -1 のまま
+    expect(cands[0].rank).toBe(-1);
+  });
+
+  it('scoreNorm は 0..1 に入り、フィルタ落ちは 0 で rank -1', () => {
+    const world = createWorld(3, 4);
+    const cands = runPipeline(world, world.agents[0], DEFAULT_PARAMS);
+    expect(cands.length).toBeGreaterThan(0);
+    for (const c of cands) {
+      expect(c.scoreNorm).toBeGreaterThanOrEqual(0);
+      expect(c.scoreNorm).toBeLessThanOrEqual(1);
+      if (c.dropStage === 1) {
+        expect(c.scoreNorm).toBe(0);
+        expect(c.rank).toBe(-1);
+      } else {
+        expect(c.scoreNorm).toBeCloseTo(
+          Math.min(1, c.score / maxScore(DEFAULT_PARAMS)),
+          10,
+        );
+        expect(c.rank).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 });

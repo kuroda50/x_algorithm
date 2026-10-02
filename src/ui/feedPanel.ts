@@ -1,6 +1,6 @@
 import { TOPICS, agentColor } from '../sim/config';
 import { feedDistribution } from '../sim/metrics';
-import { scorePost } from '../sim/pipeline';
+import { maxScore } from '../sim/pipeline';
 import type { Agent, FeedItem, Params, World } from '../sim/types';
 
 const FEED_TOP = 6;
@@ -13,12 +13,6 @@ const ICONS = {
   repost:
     '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 1 1.8 4.2 5 7.4V5.4h7V3H5V1zm6 14 3.2-3.2L11 8.6v2H4v2.4h7V15z" fill="#1D9E75"/></svg>',
 };
-
-// 今の重みで取りうる最大のスコア（興味が最大・品質が最高の投稿）
-const FULL_INTEREST = TOPICS.map((_, i) => (i === 0 ? 1 : 0));
-export function maxScore(params: Params): number {
-  return scorePost(FULL_INTEREST, 0, 1, params).score;
-}
 
 // スコアを取りうる最大値で正規化したタイルの棒の太さ（%）
 export function scoreBarWidth(score: number, params: Params): number {
@@ -101,21 +95,18 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
     el.append(list);
   }
 
-  function renderAgent(world: World, agent: Agent): void {
+  function renderAgent(agent: Agent): void {
     el.textContent = '';
     overviewSegs = null;
     const head = document.createElement('div');
     head.className = 'fp-head';
-    const dot = document.createElement('span');
-    dot.className = 'fp-dot';
-    dot.style.background = agentColor(agent.id, world.agents.length);
     const name = document.createElement('span');
     name.className = 'fp-name';
     name.textContent = agent.name;
     const follows = document.createElement('span');
     follows.className = 'fp-follows';
     follows.textContent = `フォロー ${agent.follows.size} 人`;
-    head.append(dot, name, follows);
+    head.append(name, follows);
 
     const interests = document.createElement('div');
     interests.className = 'fp-interests';
@@ -202,7 +193,7 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
       }
       if (shownId !== selectedId) {
         shownId = selectedId;
-        renderAgent(world, agent);
+        renderAgent(agent);
       }
       // ヘッダと興味バーは反応で変わるので毎ビート更新
       const follows = el.querySelector<HTMLElement>('.fp-follows');

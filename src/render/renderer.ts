@@ -1,27 +1,27 @@
-import { agentColor, MOVE_FRACTION, TOPICS } from '../sim/config';
-import type { BeatEvents, Candidate, Reactions, World } from '../sim/types';
+// ステージの描画。真横から見た平面の図形だけで描き、画面全体が拍で動く。
+// 当たる瞬間は show/score.ts の時刻表と一致する（音は audio/ が同じ時刻表から鳴らす）。
+// DOM / WebGL に触れるのはこのファイルだけ（と instruments.ts のメッシュ生成）。
+import * as THREE from 'three';
+import { FEED_KEEP, MAX_AGENT_COUNT, TOPICS } from '../sim/config';
+import type { BeatEvents, Reactions, World } from '../sim/types';
+import { timeline } from '../show/score';
 import { createAgentMotion } from './agentMotion';
+import { interestTint } from './agentLook';
+import { buildAgent, buildStage, REST, WHITE } from './instruments';
 import {
-  agentRoute,
+  AGENT_R,
+  clamp01,
   DISTRICT_CENTER,
+  DISTRICT_DISC_R,
   districtPos,
-  easeInOut,
   hash01,
-  IN_LINE,
-  laneOffset,
-  OUT_LINE,
-  pointAlongFrac,
-  STATION_IN,
-  STATION_OUT,
-  STATIONS,
-  TRUNK_LINE,
-  type Pt,
-} from './layout';
-import { bubblePath, shapePath } from './shapes';
-
-// Canvas の論理サイズ。表示は幅 100% に縮小される。
-export const CANVAS_W = 1280;
-export const CANVAS_H = 720;
+  PIPE_IN_MOUTH,
+  PIPE_OUT_MOUTH,
+  VIEW_RECT,
+  type P3,
+} from './stageLayout';
+import { ballState, TAIL_DT, TAIL_STEPS, type BallState } from './trajectory';
+import './stage.css';
 
 export interface Renderer {
   // world を作り直したとき（起動時・リセット時）に呼ぶ。演出とエージェントの位置を初期化する。
@@ -35,499 +35,555 @@ export interface Renderer {
   setSelectedAgent(agentId: number | null): void;
 }
 
-interface Colors {
-  text: string;
-  textMuted: string;
-  surface: string;
-  border: string;
-  lineIn: string;
-  lineOut: string;
-  lineTrunk: string;
-  danger: string;
-}
+const BALL_CAP = 256; // 同時に出るボールの上限。超えた分は描かない
+const SPARK_CAP = MAX_AGENT_COUNT * 8 + 64;
+const DOT_CAP = MAX_AGENT_COUNT * FEED_KEEP;
+const PULSE_BEATS = 0.5; // 当たったあとの発光が消えるまでの拍数
+const ANTICIP_BEATS = 0.5; // 当たる前に予告の光が入る拍数
+const ANTICIP_KINDS = new Set(['drum', 'vibe', 'bass', 'bell', 'cymbal', 'trap']);
+const FEED_DOT_R = 0.74; // フィードの粒が並ぶ半径
 
-const DEFAULT_COLORS: Colors = {
-  text: '#1a1a19',
-  textMuted: '#73726c',
-  surface: '#ffffff',
-  border: '#c9c7bd',
-  lineIn: '#378ADD',
-  lineOut: '#EF9F27',
-  lineTrunk: '#888780',
-  danger: '#E24B4A',
-};
+// 奥行き（z）は重なり順だけを決める。
+const Z_AGENT = 0.5;
+const Z_FEED_DOT = 0.55;
+const Z_SEL_RING = 0.6;
+const Z_BALL = 1;
+const Z_SPARK = 1.2;
 
-type ParticleKind = 'like' | 'reply' | 'repost' | 'follow' | 'burst';
+// VIEW_RECT をカメラに収める（contain）
+const VIEW_W = VIEW_RECT.x1 - VIEW_RECT.x0;
+const VIEW_H = VIEW_RECT.y1 - VIEW_RECT.y0;
+const VIEW_CX = (VIEW_RECT.x0 + VIEW_RECT.x1) / 2;
+const VIEW_CY = (VIEW_RECT.y0 + VIEW_RECT.y1) / 2;
 
-interface Particle {
-  kind: ParticleKind;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  age: number;
-  ttl: number;
-  color: string;
-}
+const BG0 = new THREE.Color('#06070b');
+const BG1 = new THREE.Color('#0d0f16');
+const REST_C = new THREE.Color(REST);
+const WHITE_C = new THREE.Color(WHITE);
+const TOPIC_COLORS = TOPICS.map((t) => new THREE.Color(t.color));
 
 interface PendingDelivery {
-  at: number; // 演出を始めるビート位置（出来事のビート + MOVE_FRACTION）
+  at: number; // 演出を始めるビート位置（その候補の catch の時刻）
   agentId: number;
   topic: number;
   reactions: Reactions;
   followed: boolean;
 }
 
-type CandidateMode = 'move' | 'fall' | 'shrink' | 'absorb';
-
-interface CandidateGeom {
+interface Spark {
   x: number;
   y: number;
-  mode: CandidateMode;
-  age: number; // 終端演出に入ってからのビート数（move では未使用）
-  spawn: boolean; // 始発駅でふわっと現れる最中か
-  phase: number;
+  vx: number;
+  vy: number;
+  age: number;
+  ttl: number;
+  color: THREE.Color;
 }
 
-const STATION_DEFS = [
-  { p: STATION_IN, name: 'フォロー内', sub: 'Thunder', labelDy: 32, pulseIdx: 0 },
-  { p: STATION_OUT, name: 'フォロー外', sub: 'Phoenix 検索', labelDy: 32, pulseIdx: 0 },
-  { p: STATIONS[1], name: 'フィルタ', sub: null, labelDy: 46, pulseIdx: 1 },
-  { p: STATIONS[2], name: 'スコアリング', sub: null, labelDy: 46, pulseIdx: 2 },
-  { p: STATIONS[3], name: '多様性調整', sub: null, labelDy: 46, pulseIdx: 3 },
-  { p: STATIONS[4], name: '選抜', sub: null, labelDy: 46, pulseIdx: 4 },
-];
+interface Label {
+  el: HTMLElement;
+  anchor: () => P3 | null; // null は隠す
+}
+
+const noopRenderer: Renderer = {
+  reset() {},
+  onBeat() {},
+  draw() {},
+  hitTestAgent: () => null,
+  setSelectedAgent() {},
+};
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer {
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('CanvasRenderingContext2D is not available');
-  const ctx: CanvasRenderingContext2D = context;
-  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-  canvas.width = CANVAS_W * dpr;
-  canvas.height = CANVAS_H * dpr;
-  ctx.scale(dpr, dpr);
+  // ラベル用の DOM レイヤー。canvas の親いっぱいに広げる。
+  const parent = canvas.parentElement;
+  const labelLayer = document.createElement('div');
+  labelLayer.className = 'stage-labels';
+  if (parent) {
+    if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+    parent.appendChild(labelLayer);
+  }
 
-  let colors = DEFAULT_COLORS;
-  let frame = 0;
-  let timeSec = 0;
-  let selectedId: number | null = null;
+  let gl: THREE.WebGLRenderer;
+  try {
+    gl = new THREE.WebGLRenderer({ canvas, antialias: true });
+  } catch {
+    const msg = document.createElement('div');
+    msg.className = 'stage-no-webgl';
+    msg.textContent = 'WebGL が使えないため表示できません';
+    labelLayer.appendChild(msg);
+    return noopRenderer;
+  }
+  gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  const scene = new THREE.Scene();
+  const bgColor = new THREE.Color().copy(BG0);
+  scene.background = bgColor;
+
+  // 真横固定の OrthographicCamera。VIEW_RECT 全体が必ず収まるようにする。
+  const camera = new THREE.OrthographicCamera(-VIEW_W / 2, VIEW_W / 2, VIEW_H / 2, -VIEW_H / 2, 0.1, 200);
+  camera.position.set(VIEW_CX, VIEW_CY, 50);
+  camera.lookAt(VIEW_CX, VIEW_CY, 0);
+
+  const stage = buildStage();
+  scene.add(stage.group);
+
+  // ボールと尾は 2 つの InstancedMesh で描く（塗りつぶした円と、フォロー外用の輪）
+  const ballCap = BALL_CAP * (1 + TAIL_STEPS);
+  const ballMesh = new THREE.InstancedMesh(
+    new THREE.CircleGeometry(1, 24),
+    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    ballCap,
+  );
+  ballMesh.count = 0;
+  ballMesh.frustumCulled = false;
+  scene.add(ballMesh);
+  const ballRingMesh = new THREE.InstancedMesh(
+    new THREE.RingGeometry(0.62, 1, 24),
+    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    ballCap,
+  );
+  ballRingMesh.count = 0;
+  ballRingMesh.frustumCulled = false;
+  scene.add(ballRingMesh);
+
+  // 配信の火花（平面の小さな円）
+  const sparkMesh = new THREE.InstancedMesh(
+    new THREE.CircleGeometry(1, 10),
+    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    SPARK_CAP,
+  );
+  sparkMesh.count = 0;
+  sparkMesh.frustumCulled = false;
+  scene.add(sparkMesh);
+
+  // エージェントの円のまわりに並ぶフィードの粒（全エージェント分を 1 つの InstancedMesh で）
+  const dotMesh = new THREE.InstancedMesh(
+    new THREE.CircleGeometry(1, 10),
+    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    DOT_CAP,
+  );
+  dotMesh.count = 0;
+  dotMesh.frustumCulled = false;
+  scene.add(dotMesh);
+  const dotWhite = new THREE.Color('#ffffff');
+  for (let i = 0; i < DOT_CAP; i++) dotMesh.setColorAt(i, dotWhite);
+
+  // エージェントの円（最大数だけ作り置きして表示数を変える）
+  const agents: { group: THREE.Group; mat: THREE.MeshBasicMaterial }[] = [];
+  for (let i = 0; i < MAX_AGENT_COUNT; i++) {
+    const a = buildAgent();
+    a.group.visible = false;
+    scene.add(a.group);
+    agents.push(a);
+  }
+  // 選択中のエージェントを囲む白い輪
+  const selRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.92, 1.0, 48),
+    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+  );
+  selRing.visible = false;
+  scene.add(selRing);
+
   const motion = createAgentMotion();
-  const particles: Particle[] = [];
+  const sparks: Spark[] = [];
   const pending: PendingDelivery[] = [];
-  const radii = new Map<number, number>();
-  const pulse = new Array<number>(5).fill(0);
+  const labels: Label[] = [];
+  const agentLabels: HTMLElement[] = [];
+  let selectedId: number | null = null;
+  let timeSec = 0;
+  const pulseMap = new Map<string, number>();
+  const anticipMap = new Map<string, number>();
 
-  function readColors(): void {
-    if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return;
-    const cs = getComputedStyle(document.documentElement);
-    const g = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-    colors = {
-      text: g('--text', DEFAULT_COLORS.text),
-      textMuted: g('--text-muted', DEFAULT_COLORS.textMuted),
-      surface: g('--surface', DEFAULT_COLORS.surface),
-      border: g('--border', DEFAULT_COLORS.border),
-      lineIn: g('--line-in', DEFAULT_COLORS.lineIn),
-      lineOut: g('--line-out', DEFAULT_COLORS.lineOut),
-      lineTrunk: g('--line-trunk', DEFAULT_COLORS.lineTrunk),
-      danger: g('--danger', DEFAULT_COLORS.danger),
-    };
+  // --- ラベル ---
+  function addLabel(main: string, anchor: () => P3 | null, cls = ''): HTMLElement {
+    const el = document.createElement('div');
+    el.className = `stage-label ${cls}`;
+    el.textContent = main;
+    labelLayer.appendChild(el);
+    labels.push({ el, anchor });
+    return el;
   }
 
-  // エージェントの描画位置（ばねの位置＋小さな上下運動）。ヒットテストもここを使う。
-  function agentDrawPos(i: number): Pt {
+  // 工程名。パイプの 2 つは口の少し上、ほかは床の下に横一列。
+  addLabel('フォロー内', () => ({ x: -15.6, y: PIPE_IN_MOUTH.y + 1.0, z: 0 }));
+  addLabel('フォロー外', () => ({ x: -15.6, y: PIPE_OUT_MOUTH.y + 1.0, z: 0 }));
+  addLabel('フィルタ', () => ({ x: -9.8, y: -1.0, z: 0 }));
+  addLabel('スコアリング', () => ({ x: 0, y: -1.0, z: 0 }));
+  addLabel('多様性調整', () => ({ x: 7.15, y: -1.0, z: 0 }));
+  addLabel('選抜', () => ({ x: 14.4, y: -1.0, z: 0 }));
+  addLabel('除外', () => ({ x: -5.2, y: -1.0, z: 0 }), 'dim');
+  addLabel('落選', () => ({ x: 11.0, y: -1.0, z: 0 }), 'dim');
+  TOPICS.forEach((t, i) => {
+    // 街の中心から見て外向きに、地区の円の縁から 0.6 離す
+    const el = addLabel(
+      t.name,
+      () => {
+        const p = districtPos(i, TOPICS.length);
+        const dx = p.x - DISTRICT_CENTER.x;
+        const dy = p.y - DISTRICT_CENTER.y;
+        const d = Math.hypot(dx, dy) || 1;
+        return {
+          x: p.x + (dx / d) * (DISTRICT_DISC_R + 0.6),
+          y: p.y + (dy / d) * (DISTRICT_DISC_R + 0.6),
+          z: 0,
+        };
+      },
+      'topic',
+    );
+    el.style.color = t.color;
+  });
+
+  const STATIC_LABELS = labels.length;
+
+  function rebuildAgentLabels(world: World): void {
+    for (const el of agentLabels) el.remove();
+    agentLabels.length = 0;
+    labels.length = STATIC_LABELS;
+    world.agents.forEach((a, i) => {
+      const el = document.createElement('div');
+      el.className = 'stage-label agent';
+      el.textContent = a.name;
+      labelLayer.appendChild(el);
+      agentLabels.push(el);
+      // エージェント名は選択中のものだけ出す（円の下）
+      labels.push({ el, anchor: () => (i === selectedId ? agentAnchor(i) : null) });
+    });
+  }
+
+  // --- 小物 ---
+  const tmpM = new THREE.Matrix4();
+  const tmpQ = new THREE.Quaternion();
+  const tmpV = new THREE.Vector3();
+  const tmpS = new THREE.Vector3();
+  const tmpC = new THREE.Color();
+
+  function setInstance(
+    mesh: THREE.InstancedMesh,
+    i: number,
+    p: P3,
+    sx: number,
+    sy: number,
+    c: THREE.Color,
+  ) {
+    tmpV.set(p.x, p.y, p.z);
+    tmpS.set(Math.max(sx, 1e-4), Math.max(sy, 1e-4), 1);
+    tmpM.compose(tmpV, tmpQ, tmpS);
+    mesh.setMatrixAt(i, tmpM);
+    mesh.setColorAt(i, c);
+  }
+
+  // エージェントの円の今の位置（catch のパルスで沈む分も込み）。
+  // ボールの終点とラベル・ヒットテストが使う。
+  function agentPos(i: number): P3 {
     const s = motion.pos(i);
-    if (!s) return { x: DISTRICT_CENTER.x, y: DISTRICT_CENTER.y };
-    return { x: s.x, y: s.y + Math.sin(timeSec * 2 + i * 1.3) * 1.5 };
+    const p = pulseMap.get(`catch:${i}`) ?? 0;
+    if (!s) return { x: DISTRICT_CENTER.x, y: DISTRICT_CENTER.y, z: 0 };
+    return { x: s.x, y: s.y + s.hop - p * 0.18, z: 0 };
   }
 
-  function strokeLine(pts: readonly Pt[], color: string, width: number, alpha: number): void {
-    if (pts.length < 2) return;
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+  function agentAnchor(i: number): P3 | null {
+    if (i >= motion.count()) return null;
+    const p = agentPos(i);
+    return { x: p.x, y: p.y - AGENT_R - 0.35, z: p.z };
   }
 
-  function drawDistricts(): void {
-    const n = TOPICS.length;
-    ctx.globalAlpha = 0.45;
-    ctx.strokeStyle = colors.border;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let i = 0; i <= n; i++) {
-      const d = districtPos(i % n, n);
-      if (i === 0) ctx.moveTo(d.x, d.y);
-      else ctx.lineTo(d.x, d.y);
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (let i = 0; i < n; i++) {
-      const d = districtPos(i, n);
-      const t = TOPICS[i];
-      ctx.globalAlpha = 0.07;
-      ctx.fillStyle = t.color;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, 60, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 0.8;
-      ctx.strokeStyle = colors.border;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, 60, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = t.color;
-      shapePath(ctx, t.shape, d.x, d.y - 8, 13);
-      ctx.fill();
-      ctx.fillStyle = colors.text;
-      ctx.font = '12px sans-serif';
-      ctx.fillText(t.name, d.x, d.y + 18);
-    }
+  // ワールド座標 → canvas 内の CSS ピクセル。カメラの後ろなら null。
+  function toScreen(p: P3): { x: number; y: number } | null {
+    tmpV.set(p.x, p.y, p.z).project(camera);
+    if (tmpV.z > 1 || tmpV.z < -1) return null;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    return { x: (tmpV.x * 0.5 + 0.5) * w, y: (-tmpV.y * 0.5 + 0.5) * h };
   }
 
-  function drawLegend(): void {
-    const y1 = 652;
-    const y2 = 684;
-    ctx.font = '11px sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    let x = 44;
-    for (const t of TOPICS) {
-      ctx.fillStyle = t.color;
-      shapePath(ctx, t.shape, x, y1, 7);
-      ctx.fill();
-      ctx.fillStyle = colors.textMuted;
-      ctx.fillText(t.name, x + 12, y1);
-      x += 76;
-    }
-    ctx.lineCap = 'round';
-    ctx.lineWidth = 6;
-    ctx.globalAlpha = 0.85;
-    ctx.strokeStyle = colors.lineIn;
-    ctx.beginPath();
-    ctx.moveTo(44, y2);
-    ctx.lineTo(66, y2);
-    ctx.stroke();
-    ctx.strokeStyle = colors.lineOut;
-    ctx.beginPath();
-    ctx.moveTo(160, y2);
-    ctx.lineTo(182, y2);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = colors.textMuted;
-    ctx.fillText('フォロー内線', 72, y2);
-    ctx.fillText('フォロー外線', 188, y2);
+  // ラベルレイヤー内の座標（canvas は親の中でパディング分ずれている）
+  function toLabelPos(p: P3): { x: number; y: number } | null {
+    const s = toScreen(p);
+    if (!s) return null;
+    return { x: s.x + canvas.offsetLeft, y: s.y + canvas.offsetTop };
   }
 
-  function drawStations(bp: number): void {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (const s of STATION_DEFS) {
-      const r = 13 + pulse[s.pulseIdx] * 5 + bp * 1.5;
-      ctx.fillStyle = colors.surface;
-      ctx.strokeStyle = colors.text;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(s.p.x, s.p.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      const labelY = s.p.y + s.labelDy;
-      ctx.fillStyle = colors.text;
-      ctx.font = '12px sans-serif';
-      ctx.fillText(s.name, s.p.x, labelY);
-      if (s.sub) {
-        ctx.fillStyle = colors.textMuted;
-        ctx.font = '9px sans-serif';
-        ctx.fillText(s.sub, s.p.x, labelY + 13);
+  function placeLabels(): void {
+    for (const l of labels) {
+      const a = l.anchor();
+      const s = a && toLabelPos(a);
+      if (!s) {
+        l.el.style.display = 'none';
+        continue;
       }
+      l.el.style.display = '';
+      l.el.style.transform = `translate(-50%, -50%) translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px)`;
     }
   }
 
-  // 候補の位置と表示モード。終端（除外・落選・配信）は到着時刻を越えたあとも描き続ける。
-  function candidateGeom(c: Candidate, beat: number, agentCount: number): CandidateGeom | null {
-    const k = Math.floor(beat) - c.startBeat;
-    if (k < 0) return null;
-    const phase = beat - Math.floor(beat);
-    const fin = c.dropStage ?? 5;
-    const tFinal = c.startBeat + fin + MOVE_FRACTION;
-    const lane = laneOffset(c.agentId, agentCount, c.id);
-    const src = c.source === 'in' ? IN_LINE : OUT_LINE;
-    if (beat >= tFinal) {
-      const age = beat - tFinal;
-      if (fin === 5) {
-        const a = agentDrawPos(c.agentId);
-        return { x: a.x, y: a.y, mode: 'absorb', age, spawn: false, phase };
-      }
-      const path = fin === 1 ? src : [STATIONS[3], STATIONS[4]];
-      const p = pointAlongFrac(path, 1);
-      return {
-        x: p.x - p.dy * lane,
-        y: p.y + p.dx * lane,
-        mode: fin === 1 ? 'fall' : 'shrink',
-        age,
-        spawn: false,
-        phase,
-      };
-    }
-    if (k === 0) {
-      const p = pointAlongFrac(src, 0);
-      return {
-        x: p.x - p.dy * lane,
-        y: p.y + p.dx * lane,
-        mode: 'move',
+  function spawnReactIcon(kind: string, text: string, p: { x: number; y: number }, slot: number, color: string): void {
+    const el = document.createElement('div');
+    el.className = `stage-react ${kind}`;
+    el.textContent = text;
+    el.style.color = color;
+    el.style.left = `${p.x}px`;
+    el.style.top = `${p.y}px`;
+    el.style.setProperty('--dx', `${(slot - 1.5) * 26}px`);
+    el.addEventListener('animationend', () => el.remove());
+    labelLayer.appendChild(el);
+    setTimeout(() => el.remove(), 1400);
+  }
+
+  // 配信の演出（エージェントの円に届いた瞬間）。火花 + 反応アイコン + 円の弾み。
+  function fireDelivery(d: PendingDelivery): void {
+    const p = agentPos(d.agentId);
+    const col = TOPICS[d.topic].color;
+    const nR =
+      (d.reactions.like ? 1 : 0) + (d.reactions.reply ? 1 : 0) + (d.reactions.repost ? 1 : 0);
+    motion.kick(d.agentId, 1.2 + 0.9 * nR);
+    const seed = d.agentId * 31 + d.at * 7;
+    for (let j = 0; j < 8; j++) {
+      const ang = (j / 8) * Math.PI * 2 + hash01(seed + j) * 0.6;
+      const sp = 1.4 + 1.8 * hash01(j * 13 + d.agentId);
+      sparks.push({
+        x: p.x,
+        y: p.y + 0.1,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp + 1.2,
         age: 0,
-        spawn: true,
-        phase,
-      };
+        ttl: 0.5,
+        color: new THREE.Color(col),
+      });
     }
-    const leg = Math.min(k, fin);
-    const path =
-      leg === 1
-        ? src
-        : leg === 5
-          ? agentRoute(STATIONS[4], agentDrawPos(c.agentId))
-          : [STATIONS[leg - 1], STATIONS[leg]];
-    const u = Math.min(1, phase / MOVE_FRACTION);
-    const e = easeInOut(u);
-    const p = pointAlongFrac(path, e);
-    // 最後の区間はレーンのずれを 0 まで絞り、エージェントの中心にそのまま着くようにする。
-    const off = leg === 5 ? lane * (1 - e) : lane;
-    return {
-      x: p.x - p.dy * off,
-      y: p.y + p.dx * off,
-      mode: 'move',
-      age: 0,
-      spawn: false,
-      phase,
+    const s = toLabelPos(p);
+    if (s) {
+      let slot = 0;
+      if (d.reactions.like) spawnReactIcon('like', '♥', s, slot++, '#ffffff');
+      if (d.reactions.reply) spawnReactIcon('reply', '…', s, slot++, '#ffffff');
+      if (d.reactions.repost) spawnReactIcon('repost', '↻', s, slot++, '#ffffff');
+      if (d.followed) spawnReactIcon('follow', '+フォロー', s, slot++, '#9aa0b0');
+    }
+  }
+
+  // --- サイズ ---
+  function applySize(): void {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
+    const aspect = w / h;
+    const halfW = Math.max(VIEW_W / 2, (VIEW_H / 2) * aspect);
+    const halfH = halfW / aspect;
+    camera.left = -halfW;
+    camera.right = halfW;
+    camera.top = halfH;
+    camera.bottom = -halfH;
+    camera.updateProjectionMatrix();
+    gl.setSize(w, h, false);
+  }
+
+  applySize();
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(applySize).observe(canvas);
+  }
+
+  function drawBalls(world: World, beat: number): void {
+    let nf = 0; // 塗りつぶし
+    let nh = 0; // 輪（フォロー外）
+    let bright = 1;
+    const put = (s: BallState, tailFade: number) => {
+      const r = s.radius * tailFade;
+      tmpC.set(s.color).multiplyScalar(bright * tailFade * tailFade * Math.max(0, s.opacity));
+      const mesh = s.hollow ? ballRingMesh : ballMesh;
+      const i = s.hollow ? nh++ : nf++;
+      setInstance(
+        mesh,
+        i,
+        { x: s.pos.x, y: s.pos.y, z: Z_BALL },
+        r * (1 + 0.35 * s.squash),
+        r * (1 - 0.35 * s.squash),
+        tmpC,
+      );
     };
-  }
-
-  // 図形の目標半径。スコアリング到着で score、多様性調整到着で adjusted に応じて変わる。
-  function targetRadius(c: Candidate, beat: number, maxScore: number, maxAdj: number): number {
-    if (beat >= c.startBeat + 3 + MOVE_FRACTION) {
-      return 5 + 9 * (maxAdj > 0 ? c.adjusted / maxAdj : 0);
-    }
-    if (beat >= c.startBeat + 2 + MOVE_FRACTION) {
-      return 5 + 9 * (maxScore > 0 ? c.score / maxScore : 0);
-    }
-    return 7;
-  }
-
-  function drawCandidates(world: World, beat: number, dt: number): void {
-    const nAgents = world.agents.length;
-    let maxScore = 0;
-    let maxAdj = 0;
     for (const c of world.candidates) {
-      if (c.score > maxScore) maxScore = c.score;
-      if (c.adjusted > maxAdj) maxAdj = c.adjusted;
-    }
-    const alive = new Set<number>();
-    for (const c of world.candidates) {
-      alive.add(c.id);
-      const g = candidateGeom(c, beat, nAgents);
-      if (!g) continue;
-      let alpha = 1;
-      let scale = 1;
-      let color = TOPICS[c.topic].color;
-      let y = g.y;
-      if (g.mode === 'fall') {
-        alpha = Math.max(0, 1 - g.age / 1.15);
-        color = colors.danger;
-        y += 150 * Math.pow(g.age, 1.8);
-      } else if (g.mode === 'shrink') {
-        const s = Math.max(0, 1 - g.age / 0.8);
-        alpha = s;
-        scale = s;
-        color = colors.lineTrunk;
-      } else if (g.mode === 'absorb') {
-        const s = Math.max(0, 1 - g.age / 0.3);
-        alpha = s;
-        scale = s;
-      } else if (g.spawn) {
-        scale = easeInOut(Math.min(1, g.phase / 0.45));
-        alpha = Math.min(1, g.phase / 0.3);
+      if (nf + nh >= ballCap) break;
+      const ap = agentPos(c.agentId);
+      const st = ballState(c, beat, ap);
+      if (!st.visible) continue;
+      bright = selectedId !== null && c.agentId !== selectedId ? 0.35 : 1;
+      // 頭と尾。尾は少し前の時刻に評価した位置に、だんだん小さく薄くする
+      put(st, 1);
+      for (let k = 1; k <= TAIL_STEPS && nf + nh < ballCap; k++) {
+        const ts = ballState(c, beat - k * TAIL_DT, ap);
+        if (!ts.visible) break;
+        put(ts, 1 - k / (TAIL_STEPS + 2));
       }
-      const tr = targetRadius(c, beat, maxScore, maxAdj);
-      const r = (radii.get(c.id) ?? 7) + (tr - (radii.get(c.id) ?? 7)) * Math.min(1, dt * 8);
-      radii.set(c.id, r);
-      const dim = selectedId !== null && c.agentId !== selectedId;
-      ctx.globalAlpha = alpha * (dim ? 0.25 : 1);
-      ctx.fillStyle = color;
-      shapePath(ctx, TOPICS[c.topic].shape, g.x, y, Math.max(0.1, r * scale));
-      ctx.fill();
     }
-    ctx.globalAlpha = 1;
-    for (const id of radii.keys()) if (!alive.has(id)) radii.delete(id);
+    ballMesh.count = nf;
+    ballMesh.instanceMatrix.needsUpdate = true;
+    if (ballMesh.instanceColor) ballMesh.instanceColor.needsUpdate = true;
+    ballRingMesh.count = nh;
+    ballRingMesh.instanceMatrix.needsUpdate = true;
+    if (ballRingMesh.instanceColor) ballRingMesh.instanceColor.needsUpdate = true;
+  }
+
+  function drawSparks(dt: number): void {
+    let n = 0;
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.age += dt;
+      if (s.age >= s.ttl) {
+        sparks.splice(i, 1);
+        continue;
+      }
+      s.vy -= 7 * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+    }
+    for (const s of sparks) {
+      if (n >= SPARK_CAP) break;
+      const f = 1 - s.age / s.ttl;
+      const r = 0.07 * (0.4 + 0.6 * f);
+      tmpC.copy(s.color).multiplyScalar(f);
+      setInstance(sparkMesh, n++, { x: s.x, y: s.y, z: Z_SPARK }, r, r, tmpC);
+    }
+    sparkMesh.count = n;
+    sparkMesh.instanceMatrix.needsUpdate = true;
+    if (sparkMesh.instanceColor) sparkMesh.instanceColor.needsUpdate = true;
   }
 
   function drawAgents(world: World): void {
     const n = world.agents.length;
-    const counts = new Array<number>(TOPICS.length).fill(0);
-    for (let i = 0; i < n; i++) {
-      const a = world.agents[i];
+    let d = 0;
+    for (let i = 0; i < n && i < agents.length; i++) {
       const s = motion.pos(i);
-      if (!s) continue;
-      const p = agentDrawPos(i);
-      const col = agentColor(i, n);
+      const a = agents[i];
+      if (!s) {
+        a.group.visible = false;
+        continue;
+      }
       const dim = selectedId !== null && i !== selectedId;
-      const alpha = dim ? 0.25 : 1;
+      const p = agentPos(i);
+      a.group.visible = true;
+      a.group.position.set(p.x, p.y, Z_AGENT);
+      a.group.scale.setScalar((dim ? 0.75 : 1) * (1 + s.pop * 0.25));
+      // 円の色は興味の偏りで染まる（最初は全員白）
+      const tint = interestTint(world.agents[i].interest);
+      a.mat.color
+        .copy(WHITE_C)
+        .lerp(TOPIC_COLORS[tint.topic], tint.amount)
+        .multiplyScalar(dim ? 0.35 : 1);
+      // フィードの話題構成を円のまわりの粒で示す（足りない分は暗い粒）
+      const feed = world.agents[i].feed;
+      for (let k = 0; k < FEED_KEEP && d < DOT_CAP; k++, d++) {
+        const ang = (k / FEED_KEEP) * Math.PI * 2 - Math.PI / 2;
+        const item = feed[k];
+        tmpC.set(item ? TOPICS[item.topic].color : '#232936').multiplyScalar(dim ? 0.3 : 1);
+        setInstance(
+          dotMesh,
+          d,
+          {
+            x: p.x + Math.cos(ang) * FEED_DOT_R,
+            y: p.y + Math.sin(ang) * FEED_DOT_R,
+            z: Z_FEED_DOT,
+          },
+          0.07,
+          0.07,
+          tmpC,
+        );
+      }
+    }
+    dotMesh.count = d;
+    dotMesh.instanceMatrix.needsUpdate = true;
+    if (dotMesh.instanceColor) dotMesh.instanceColor.needsUpdate = true;
+    for (let i = n; i < agents.length; i++) agents[i].group.visible = false;
+    if (selectedId !== null && selectedId < n) {
+      const p = agentPos(selectedId);
+      selRing.visible = true;
+      selRing.position.set(p.x, p.y, Z_SEL_RING);
+    } else {
+      selRing.visible = false;
+    }
+  }
 
-      // フィードの話題構成を表すドーナツリング
-      counts.fill(0);
-      for (const f of a.feed) counts[f.topic]++;
-      ctx.lineWidth = 4;
-      if (a.feed.length > 0) {
-        let ang = -Math.PI / 2;
-        for (let j = 0; j < TOPICS.length; j++) {
-          const share = counts[j] / a.feed.length;
-          if (share <= 0) continue;
-          const len = share * Math.PI * 2;
-          ctx.strokeStyle = TOPICS[j].color;
-          ctx.globalAlpha = alpha;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 20, ang + 0.03, ang + len - 0.03);
-          ctx.stroke();
-          ang += len;
+  // 当たった瞬間の発光と動き。楽器ごとの「最後に当たってからの拍数」から決める。
+  // 当たる直前の ANTICIP_BEATS 拍のあいだは予告として少し明るくする。
+  function applyPulses(world: World, beat: number): void {
+    pulseMap.clear();
+    anticipMap.clear();
+    for (const c of world.candidates) {
+      for (const h of timeline(c)) {
+        const age = beat - h.time;
+        const key = `${h.kind}:${h.index}`;
+        if (age >= 0 && age <= PULSE_BEATS) {
+          const p = 1 - age / PULSE_BEATS;
+          if (p > (pulseMap.get(key) ?? 0)) pulseMap.set(key, p);
+        } else if (age >= -ANTICIP_BEATS && age < 0 && ANTICIP_KINDS.has(h.kind)) {
+          const a = 1 + age / ANTICIP_BEATS;
+          if (a > (anticipMap.get(key) ?? 0)) anticipMap.set(key, a);
         }
-      } else {
-        ctx.strokeStyle = colors.border;
-        ctx.globalAlpha = alpha * 0.6;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-
-      // 本体
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 13 + s.pop * 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = colors.surface;
-      ctx.beginPath();
-      ctx.arc(p.x - 4, p.y - 2, 1.7, 0, Math.PI * 2);
-      ctx.arc(p.x + 4, p.y - 2, 1.7, 0, Math.PI * 2);
-      ctx.fill();
-      if (i === selectedId) {
-        ctx.strokeStyle = colors.text;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 24, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // 名前（下地を付けて読みやすく）
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.strokeStyle = colors.surface;
-      ctx.lineWidth = 3;
-      ctx.strokeText(a.name, p.x, p.y + 34);
-      ctx.fillStyle = colors.text;
-      ctx.fillText(a.name, p.x, p.y + 34);
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  function drawParticles(): void {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (const p of particles) {
-      const a = Math.max(0, 1 - p.age / p.ttl);
-      if (a <= 0) continue;
-      ctx.globalAlpha = a;
-      ctx.fillStyle = p.color;
-      if (p.kind === 'burst') {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (p.kind === 'like') {
-        ctx.font = '15px sans-serif';
-        ctx.fillText('♥', p.x, p.y);
-      } else if (p.kind === 'repost') {
-        ctx.font = '16px sans-serif';
-        ctx.fillText('↻', p.x, p.y);
-      } else if (p.kind === 'reply') {
-        bubblePath(ctx, p.x, p.y, 7);
-        ctx.fill();
-      } else {
-        ctx.font = '10px sans-serif';
-        ctx.fillText('+フォロー', p.x, p.y);
       }
     }
-    ctx.globalAlpha = 1;
-  }
+    const pulse = (kind: string, i = 0) => pulseMap.get(`${kind}:${i}`) ?? 0;
+    const anticip = (kind: string, i = 0) => anticipMap.get(`${kind}:${i}`) ?? 0;
+    const glow = (mat: THREE.MeshBasicMaterial, kind: string, i = 0) => {
+      mat.color.copy(REST_C).lerp(WHITE_C, clamp01(0.35 * anticip(kind, i) + pulse(kind, i)));
+    };
 
-  function spawnIcon(kind: ParticleKind, p: Pt, color: string, slot: number): void {
-    particles.push({
-      kind,
-      x: p.x + (slot - 1) * 15,
-      y: p.y - 16,
-      vx: 0,
-      vy: -32,
-      age: 0,
-      ttl: 1.0,
-      color,
+    stage.drums.forEach((d, i) => {
+      const p = pulse('drum', i);
+      glow(d.mat, 'drum', i);
+      d.group.scale.setScalar(1 + (d.kick ? 0.18 : 0.08) * p);
     });
+    stage.vibeBars.forEach((b, i) => {
+      const p = pulse('vibe', i);
+      glow(b.mat, 'vibe', i);
+      b.mesh.position.y = b.restY - 0.07 * p;
+    });
+    stage.bassStrings.forEach((s, i) => {
+      const p = pulse('bass', i);
+      glow(s.mat, 'bass', i);
+      s.mesh.position.y = s.restY + Math.sin(timeSec * 55 + i * 2.1) * 0.09 * p;
+    });
+    stage.bells.forEach((b, i) => {
+      const p = pulse('bell', i);
+      glow(b.mat, 'bell', i);
+      b.mesh.scale.setScalar(1 + 0.2 * p);
+    });
+    glow(stage.cymbalBar.mat, 'cymbal');
+    stage.cymbalBar.mesh.rotation.z =
+      stage.cymbalBar.baseRot + Math.sin(timeSec * 26) * 0.4 * pulse('cymbal');
+    glow(stage.trapBar.mat, 'trap');
+    stage.scrapBin.position.y = -0.09 * pulse('scrap');
+    stage.rejectBin.position.y = -0.09 * pulse('reject');
+    stage.pipes.forEach((pipe, i) => {
+      const p = pulse('launch', i);
+      pipe.group.position.x = -0.3 * p;
+      pipe.ringMat.color.copy(REST_C).lerp(WHITE_C, p);
+    });
+    // キックの拍でわずかにズーム
+    camera.zoom = 1 + 0.015 * pulse('drum', 0);
+    camera.updateProjectionMatrix();
   }
 
-  // 配信の演出。届いた拍の +MOVE_FRACTION を越えたフレームで発火する。
-  function firePending(world: World, beat: number): void {
-    for (let i = pending.length - 1; i >= 0; i--) {
-      const d = pending[i];
-      if (beat < d.at) continue;
-      pending.splice(i, 1);
-      const p = agentDrawPos(d.agentId);
-      const col = agentColor(d.agentId, world.agents.length);
-      const nR =
-        (d.reactions.like ? 1 : 0) + (d.reactions.reply ? 1 : 0) + (d.reactions.repost ? 1 : 0);
-      motion.kick(d.agentId, 50 + 60 * nR);
-      let slot = 0;
-      if (d.reactions.like) spawnIcon('like', p, col, slot++);
-      if (d.reactions.reply) spawnIcon('reply', p, col, slot++);
-      if (d.reactions.repost) spawnIcon('repost', p, col, slot++);
-      if (d.followed) spawnIcon('follow', p, colors.textMuted, slot++);
-      const seed = d.agentId * 31 + d.at * 7;
-      for (let j = 0; j < 7; j++) {
-        const ang = (j / 7) * Math.PI * 2 + hash01(seed) * 0.6;
-        const sp = 45 + 45 * hash01(j * 13 + d.agentId);
-        particles.push({
-          kind: 'burst',
-          x: p.x,
-          y: p.y,
-          vx: Math.cos(ang) * sp,
-          vy: Math.sin(ang) * sp,
-          age: 0,
-          ttl: 0.5,
-          color: TOPICS[d.topic].color,
-        });
-      }
-    }
+  // 拍に合わせた背景の脈動。一時停止中は beat が進まないので止まる。
+  function applyBeatPulse(beat: number): void {
+    const frac = beat - Math.floor(beat);
+    let beatPulse = Math.exp(-frac * 5);
+    if (Math.floor(beat) % 4 === 0) beatPulse *= 1.6;
+    for (const r of stage.bgRings) r.scale.setScalar(1 + 0.05 * beatPulse);
+    bgColor.copy(BG0).lerp(BG1, Math.min(1, 0.6 * beatPulse));
   }
 
   return {
     reset(world) {
       if (selectedId !== null && selectedId >= world.agents.length) selectedId = null;
       motion.reset(world.agents.length);
-      particles.length = 0;
+      sparks.length = 0;
       pending.length = 0;
-      radii.clear();
-      pulse.fill(0);
+      rebuildAgentLabels(world);
       timeSec = 0;
     },
     onBeat(_world, events) {
       for (const d of events.delivered) {
+        // 届いた拍の stepBeat 時点ではなく、その候補の catch の時刻（拍の途中）に発火する
+        const hit = timeline(d.candidate).find((h) => h.kind === 'catch');
         pending.push({
-          at: events.beat + MOVE_FRACTION,
+          at: hit ? hit.time : events.beat,
           agentId: d.candidate.agentId,
           topic: d.candidate.topic,
           reactions: d.item.reactions,
@@ -537,70 +593,37 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       motion.beatHop(events.beat);
     },
     draw(world, beat, dt) {
-      frame++;
       timeSec += dt;
-      if (frame % 30 === 1) readColors();
-      if (motion.count() !== world.agents.length) motion.reset(world.agents.length);
-      firePending(world, beat);
+      if (motion.count() !== world.agents.length) {
+        motion.reset(world.agents.length);
+        rebuildAgentLabels(world);
+      }
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (beat >= pending[i].at) {
+          fireDelivery(pending[i]);
+          pending.splice(i, 1);
+        }
+      }
       motion.update(world, dt);
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.age += dt;
-        if (p.age >= p.ttl) {
-          particles.splice(i, 1);
-          continue;
-        }
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-      }
-
-      const phase = beat - Math.floor(beat);
-      const bp = Math.max(0, 1 - phase / 0.3);
-
-      // 駅の脈打ち: 各候補が最後に駅へ着いた時刻からの経過で決める。
-      pulse.fill(0);
-      for (const c of world.candidates) {
-        const k = Math.floor(beat) - c.startBeat;
-        const fin = c.dropStage ?? 5;
-        const jmax = Math.min(Math.min(k, fin), 4);
-        for (let j = 1; j <= jmax; j++) {
-          const age = beat - (c.startBeat + j + MOVE_FRACTION);
-          if (age >= 0) pulse[j] = Math.max(pulse[j], 1 - age / 0.35);
-        }
-      }
-
-      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-      drawDistricts();
-      strokeLine(IN_LINE, colors.lineIn, 10 + bp * 4, 0.3);
-      strokeLine(OUT_LINE, colors.lineOut, 10 + bp * 4, 0.3);
-      strokeLine(TRUNK_LINE, colors.lineTrunk, 10 + bp * 4, 0.3);
-      const nAgents = world.agents.length;
-      for (let i = 0; i < nAgents; i++) {
-        const dim = selectedId !== null && i !== selectedId;
-        const a = selectedId === null ? 0.35 : dim ? 0.1 : 0.85;
-        strokeLine(
-          agentRoute(STATIONS[4], agentDrawPos(i)),
-          agentColor(i, nAgents),
-          i === selectedId ? 4 : 3,
-          a,
-        );
-      }
-      drawLegend();
-      drawStations(bp);
-      drawCandidates(world, beat, dt);
+      applyPulses(world, beat);
+      applyBeatPulse(beat);
+      drawBalls(world, beat);
+      drawSparks(dt);
       drawAgents(world);
-      drawParticles();
+      placeLabels();
+      gl.render(scene, camera);
     },
     hitTestAgent(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return null;
-      const x = (clientX - rect.left) * (CANVAS_W / rect.width);
-      const y = (clientY - rect.top) * (CANVAS_H / rect.height);
+      // エージェントの円が画面上で占める半径より少し大きいしきい値
+      const pxPerUnit = rect.width / (camera.right - camera.left);
       let best = -1;
-      let bestD = 20;
+      let bestD = Math.max(24, AGENT_R * pxPerUnit * 1.4);
       for (let i = 0; i < motion.count(); i++) {
-        const p = agentDrawPos(i);
-        const d = Math.hypot(p.x - x, p.y - y);
+        const s = toScreen(agentPos(i));
+        if (!s) continue;
+        const d = Math.hypot(s.x - (clientX - rect.left), s.y - (clientY - rect.top));
         if (d < bestD) {
           bestD = d;
           best = i;
@@ -613,4 +636,3 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     },
   };
 }
-

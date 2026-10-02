@@ -17,7 +17,6 @@ import {
   PIPELINE_BEATS,
   POST_KEEP_AGE,
   POSTS_PER_BEAT,
-  REQUEST_INTERVAL,
   TOPICS,
 } from './config';
 import { computeMetrics } from './metrics';
@@ -230,9 +229,9 @@ export function stepBeat(world: World, params: Params): BeatEvents {
     }
   }
 
-  // 4. フィード要求
+  // 4. フィード要求（1 拍につきエージェント 1 体。agents.length 拍で一巡する）
   for (const agent of world.agents) {
-    if (beat % REQUEST_INTERVAL !== agent.id % REQUEST_INTERVAL) continue;
+    if (beat % world.agents.length !== agent.id) continue;
     const cands = runPipeline(world, agent, params);
     world.candidates.push(...cands);
     events.spawned.push(...cands);
