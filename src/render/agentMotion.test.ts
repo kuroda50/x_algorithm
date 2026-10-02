@@ -34,8 +34,8 @@ function run(motion: ReturnType<typeof createAgentMotion>, world: World, steps: 
   for (let i = 0; i < steps; i++) motion.update(world, dt);
 }
 
-const distFromCenter = (p: { x: number; z: number }) =>
-  Math.hypot(p.x - DISTRICT_CENTER.x, p.z - DISTRICT_CENTER.z);
+const distFromCenter = (p: { x: number; y: number }) =>
+  Math.hypot(p.x - DISTRICT_CENTER.x, p.y - DISTRICT_CENTER.y);
 
 describe('createAgentMotion', () => {
   it('reset は街の中心付近に散らして置く', () => {
@@ -55,7 +55,7 @@ describe('createAgentMotion', () => {
     const p = m.pos(0)!;
     const d0 = districtPos(0, 5);
     // ふらつきとばねの残りを考えて 1.5 以内
-    expect(Math.hypot(p.x - d0.x, p.z - d0.z)).toBeLessThan(1.5);
+    expect(Math.hypot(p.x - d0.x, p.y - d0.y)).toBeLessThan(1.5);
   });
 
   it('均等な興味の集団は中心付近に残るが、反発で重ならない', () => {
@@ -68,7 +68,7 @@ describe('createAgentMotion', () => {
     run(m, world, 300);
     const a = m.pos(0)!;
     const b = m.pos(1)!;
-    expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(0.5);
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(0.5);
     expect(distFromCenter(a)).toBeLessThan(2);
     expect(distFromCenter(b)).toBeLessThan(2);
   });
@@ -89,10 +89,10 @@ describe('createAgentMotion', () => {
     m.update(world, 0);
     const after = m.pos(0)!;
     expect(after.x).toBe(before.x);
-    expect(after.z).toBe(before.z);
+    expect(after.y).toBe(before.y);
   });
 
-  it('kick / beatHop で上に跳ねて床に戻る', () => {
+  it('kick / beatHop で上に跳ねて元の高さに戻る', () => {
     const m = createAgentMotion();
     const world = mkWorld([
       [0.2, 0.2, 0.2, 0.2, 0.2],
@@ -101,13 +101,13 @@ describe('createAgentMotion', () => {
     m.reset(2);
     m.kick(0, 2);
     m.update(world, 1 / 60);
-    expect(m.pos(0)!.y).toBeGreaterThan(0);
+    expect(m.pos(0)!.hop).toBeGreaterThan(0);
     m.beatHop(1);
     m.update(world, 1 / 60);
-    expect(m.pos(1)!.y).toBeGreaterThan(0);
+    expect(m.pos(1)!.hop).toBeGreaterThan(0);
     run(m, world, 600);
-    expect(m.pos(0)!.y).toBe(0);
-    expect(m.pos(1)!.y).toBe(0);
+    expect(m.pos(0)!.hop).toBe(0);
+    expect(m.pos(1)!.hop).toBe(0);
   });
 
   it('エージェント数が変わると update 内で作り直す', () => {
@@ -124,6 +124,6 @@ describe('initialAgentPos', () => {
     const a = initialAgentPos(0);
     const b = initialAgentPos(1);
     expect(initialAgentPos(0)).toEqual(a);
-    expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(0.2);
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(0.2);
   });
 });

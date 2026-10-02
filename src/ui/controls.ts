@@ -50,10 +50,12 @@ interface SliderDef {
   set(v: number): void;
 }
 
-function makeButton(html: string, onClick: () => void): HTMLButtonElement {
+function makeButton(html: string, label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.className = 'btn';
   b.innerHTML = html;
+  b.setAttribute('aria-label', label);
+  b.title = label;
   b.addEventListener('click', onClick);
   return b;
 }
@@ -123,23 +125,21 @@ export function setupControls(opts: ControlsOptions): Controls {
 
   let paused = false;
   let soundOn = false;
-  const btnSound = makeButton(`${ICONS.soundOff}<span>音を鳴らす</span>`, () => {
+  const btnSound = makeButton(ICONS.soundOff, '音を鳴らす', () => {
     soundOn = !soundOn;
     renderSound();
     opts.onSoundChange(soundOn);
   });
-  const btnPause = makeButton(`${ICONS.pause}<span>一時停止</span>`, () => {
+  const btnPause = makeButton(ICONS.pause, '一時停止', () => {
     paused = !paused;
     renderPause();
     opts.onPauseChange(paused);
   });
-  const btnReset = makeButton(`${ICONS.reset}<span>リセット</span>`, () => opts.onReset());
-  const btnSettings = makeButton(`${ICONS.settings}<span>設定</span>`, () =>
-    opts.onToggleSettings(),
-  );
+  const btnReset = makeButton(ICONS.reset, 'リセット', () => opts.onReset());
+  const btnSettings = makeButton(ICONS.settings, '設定', () => opts.onToggleSettings());
   btnSettings.setAttribute('aria-controls', 'settings-panel');
   btnSettings.setAttribute('aria-expanded', 'false');
-  const btnGuide = makeButton(`${ICONS.guide}<span>見方</span>`, () => opts.onToggleGuide());
+  const btnGuide = makeButton(ICONS.guide, '見方', () => opts.onToggleGuide());
   btnGuide.setAttribute('aria-controls', 'guide-panel');
   btnGuide.setAttribute('aria-expanded', 'false');
   const stats = document.createElement('span');
@@ -147,16 +147,18 @@ export function setupControls(opts: ControlsOptions): Controls {
   buttonsEl.append(btnSound, btnPause, btnReset, btnSettings, btnGuide, stats);
 
   function renderSound(): void {
-    btnSound.innerHTML = soundOn
-      ? `${ICONS.soundOn}<span>音を止める</span>`
-      : `${ICONS.soundOff}<span>音を鳴らす</span>`;
+    const label = soundOn ? '音を止める' : '音を鳴らす';
+    btnSound.innerHTML = soundOn ? ICONS.soundOn : ICONS.soundOff;
     btnSound.setAttribute('aria-pressed', String(soundOn));
+    btnSound.setAttribute('aria-label', label);
+    btnSound.title = label;
   }
   function renderPause(): void {
-    btnPause.innerHTML = paused
-      ? `${ICONS.play}<span>再開</span>`
-      : `${ICONS.pause}<span>一時停止</span>`;
+    const label = paused ? '再開' : '一時停止';
+    btnPause.innerHTML = paused ? ICONS.play : ICONS.pause;
     btnPause.setAttribute('aria-pressed', String(paused));
+    btnPause.setAttribute('aria-label', label);
+    btnPause.title = label;
   }
   renderSound();
   renderPause();

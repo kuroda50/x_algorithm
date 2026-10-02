@@ -1,12 +1,10 @@
 :root {
   color-scheme: dark;
-  --bg: #0a0a10;
-  --surface: #13131b;
+  --bg: #06070b;
+  --surface: #0b0c11;
   --text: #ececf2;
-  --text-muted: #9b9ba9;
-  --border: #2b2b38;
-  --line-in: #5aa2e8;
-  --line-out: #c0906a;
+  --text-muted: #8a90a2;
+  --border: rgba(255, 255, 255, 0.16);
   --danger: #e87371;
 }
 
@@ -60,14 +58,12 @@ body {
   pointer-events: auto;
 }
 
-/* パネルの共通の面（半透明の暗い面 + ぼかし） */
+/* パネルの共通の面（黒い面 + 細い白い線） */
 
 .panel {
-  background: rgba(18, 18, 24, 0.62);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: rgba(11, 12, 17, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 4px;
   padding: 10px 12px;
 }
 
@@ -96,41 +92,11 @@ body {
 }
 
 .brand h1 {
-  font-size: 16px;
-  margin: 0 0 2px;
-  font-weight: 600;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.85);
-}
-
-.lead {
-  margin: 0;
-  color: var(--text-muted);
   font-size: 12px;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 8px;
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
-  white-space: nowrap;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
-}
-
-.legend-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: none;
 }
 
 .actions {
@@ -167,21 +133,28 @@ body {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   font: inherit;
   font-size: 13px;
   color: var(--text);
-  background: rgba(18, 18, 24, 0.62);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
   cursor: pointer;
 }
 
 .btn:hover {
-  border-color: rgba(255, 255, 255, 0.28);
+  border-color: #ffffff;
+}
+
+.btn[aria-pressed="true"],
+.btn[aria-expanded="true"] {
+  background: #ffffff;
+  color: #06070b;
 }
 
 .btn svg {
@@ -191,24 +164,26 @@ body {
 }
 
 .btn-primary {
-  background: var(--line-in);
+  width: auto;
+  height: auto;
+  padding: 8px 16px;
+  background: #ffffff;
   border-color: transparent;
-  color: #fff;
+  color: #06070b;
   font-weight: 600;
 }
 
 .btn-primary:hover {
-  background: #6fb0f2;
+  background: #d9dce6;
   border-color: transparent;
 }
 
 .stats {
   flex-basis: 100%;
   text-align: right;
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 11px;
+  color: #4c5160;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
 }
 
 /* スライダー群 */
@@ -236,7 +211,7 @@ body {
 .row input[type="range"] {
   flex: 1;
   min-width: 0;
-  accent-color: var(--line-in);
+  accent-color: #ffffff;
 }
 
 .row b {
@@ -319,33 +294,6 @@ body {
   gap: 8px;
 }
 
-.panel-fold {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  font: inherit;
-  color: var(--text-muted);
-  background: transparent;
-  border: 0.5px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.panel-fold:hover {
-  color: var(--text);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-.panel-fold svg {
-  width: 12px;
-  height: 12px;
-  display: block;
-}
-
 .panel-body {
   margin-top: 8px;
   min-height: 0;
@@ -423,13 +371,6 @@ body {
   gap: 8px;
   font-size: 13px;
   margin-bottom: 8px;
-}
-
-.fp-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex: none;
 }
 
 .fp-name {

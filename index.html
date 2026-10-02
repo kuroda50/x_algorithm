@@ -14,8 +14,6 @@
       <div class="hud-top">
         <header class="brand">
           <h1>X レコメンド・ビートオーケストラ</h1>
-          <p class="lead">投稿がボールになって楽器を鳴らし、おすすめフィードに届くまで</p>
-          <div id="legend" class="legend"></div>
         </header>
         <div class="actions">
           <div id="buttons" class="buttons"></div>
@@ -29,78 +27,59 @@
               <thead>
                 <tr>
                   <th>工程（実際の構成）</th>
-                  <th>楽器</th>
+                  <th>画面</th>
                   <th>起きること</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>候補取得（Thunder / Phoenix 検索）</td>
-                  <td>2 本のパイプ</td>
-                  <td>フォロー内・フォロー外の投稿が 16 分音符ごとに 1 個ずつ発射される</td>
+                  <td>左上の 2 本のパイプ</td>
+                  <td>フォロー内（塗りつぶした丸）とフォロー外（輪）の投稿が、16 分音符ごとに 1 個ずつ発射される</td>
                 </tr>
                 <tr>
                   <td>フィルタ</td>
-                  <td>ドラム</td>
-                  <td>通過した投稿がキック・スネア・ハットを鳴らす。スパムや古い投稿はシンバルに弾かれてスクラップ箱へ</td>
+                  <td>ドラム（丸）</td>
+                  <td>通過した投稿がキック・スネア・ハットを鳴らす。スパムや古い投稿は上のバーに弾かれ、灰色になって除外の箱へ</td>
                 </tr>
                 <tr>
                   <td>スコアリング</td>
-                  <td>ビブラフォン</td>
-                  <td>スコアが高い投稿ほど高い音の鍵盤に落ち、大きくなる</td>
+                  <td>ビブラフォン（階段）</td>
+                  <td>スコアが高い投稿ほど高い段に落ち、大きくなる</td>
                 </tr>
                 <tr>
                   <td>多様性調整</td>
-                  <td>ベース</td>
+                  <td>ベース（4 本の弦）</td>
                   <td>同じ投稿者の 2 件目以降とフォロー外の投稿は、弦に当たると小さくなる</td>
                 </tr>
                 <tr>
                   <td>選抜</td>
-                  <td>ベル</td>
-                  <td>上位 3 件だけがベルを鳴らしてエージェントへ飛ぶ。残りは落選箱へ</td>
+                  <td>ベル（3 つの半円）</td>
+                  <td>上位 3 件だけがベルを鳴らしてエージェントへ飛ぶ。残りは灰色になって落選の箱へ</td>
                 </tr>
                 <tr>
                   <td>フィード</td>
-                  <td>エージェントの受け皿</td>
-                  <td>話題ごとの高さの音で届く。反応するとキラッと鳴り、その話題の地区へ寄っていく</td>
+                  <td>右の丸（エージェント）</td>
+                  <td>届いた投稿に反応すると、その話題の地区へ寄っていき、その話題の色に染まっていく</td>
                 </tr>
               </tbody>
             </table>
             <p class="guide-note">
-              音はすべてボールが当たった瞬間に鳴ります。コードは 4 拍ごとに C → Am → F → G
-              と進みます。ドラッグで視点を回せます。
+              色がついているのは話題だけです（投稿・地区・エージェント）。白いものはアルゴリズムの装置です。エージェントは最初は白く、興味が偏るほどその話題の色に染まります。エージェントをクリックすると、その人のフィードと、フィードの偏りの推移が見られます。
             </p>
           </section>
         </div>
       </div>
-      <div class="dock">
+      <div class="dock" id="dock" hidden>
         <section id="feed-wrap" class="panel feed-wrap">
           <div class="panel-bar">
             <h2 class="panel-h">フィード</h2>
-            <button
-              class="panel-fold"
-              type="button"
-              aria-expanded="true"
-              aria-controls="feed-panel"
-              aria-label="パネルを折りたたむ"
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            </button>
           </div>
           <div id="feed-panel" class="panel-body"></div>
         </section>
         <section id="chart-wrap" class="panel chart-wrap">
           <div class="panel-bar">
             <h2 class="panel-h">フィードの偏り</h2>
-            <button
-              class="panel-fold"
-              type="button"
-              aria-expanded="true"
-              aria-controls="chart-panel"
-              aria-label="パネルを折りたたむ"
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            </button>
           </div>
           <div id="chart-panel" class="panel-body"></div>
         </section>

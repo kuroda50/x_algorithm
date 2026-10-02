@@ -6,22 +6,24 @@ import { TOPICS } from '../sim/config';
 import { timeline } from '../show/score';
 import { clamp01, hitPoint, p3, type P3 } from './stageLayout';
 
-export const HOP_HEIGHT = 2.2; // 1 拍の区間で跳ねたときの最高到達点
-export const BALL_R = 0.22; // 基準の半径
-export const TAIL_STEPS = 10; // 尾の数
+export const HOP_HEIGHT = 3.0; // 1 拍の区間で跳ねたときの最高到達点
+export const BALL_R = 0.34; // 基準の半径
+export const TAIL_STEPS = 8; // 尾の数
 export const TAIL_DT = 0.016; // 尾 1 つ分の時間差（ビート）
 export const VANISH_CATCH = 0.25; // 受け止められて縮んで消えるまでのビート数
 export const VANISH_BIN = 0.3; // 箱に落ちて消えるまでのビート数
 export const SIZE_BLEND = 0.15; // 大きさが切り替わるまでのビート数
+export const SQUASH_BEATS = 0.12; // 当たった直後に伸び縮みするビート数
 
-export const CYMBAL_COLOR = '#e24b4a'; // フィルタで弾かれたあとの色
-export const TRAP_COLOR = '#8b8f96'; // 落選したあとの色
+export const DROPPED_COLOR = '#6b7080'; // 除外・落選したあとの色（色は話題だけに使う）
 
 export interface BallState {
   pos: P3;
   radius: number; // 描画半径。消えていく演出で 0 まで小さくなる
   opacity: number; // 0..1
   color: string;
+  squash: number; // 0..1。当たった直後は 1 に近く、横に伸びて縦に潰す
+  hollow: boolean; // フォロー外のボールは輪として描く
   visible: boolean;
 }
 
@@ -31,7 +33,7 @@ const smooth = (u: number): number => {
   return t * t * (3 - 2 * t);
 };
 
-// ボール 1 個の今の状態。beat は小数のビート位置、agentPos は捕まえるエージェントの受け皿の今の位置。
+// ボール 1 個の今の状態。beat は小数のビート位置、agentPos は捕まえるエージェントの円の今の位置。
 export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
   const hits = timeline(c);
   const first = hits[0];
@@ -40,6 +42,8 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
     radius: 0,
     opacity: 0,
     color: TOPICS[c.topic].color,
+    squash: 0,
+    hollow: c.source === 'out',
     visible: false,
   };
   if (!Number.isFinite(beat) || beat < first.time) return base;
@@ -56,31 +60,43 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
     }
   }
 
-  // 色: 話題の色。フィルタで弾かれたあとは赤、落選したあとは灰色。
+  // 色: 話題の色。フィルタで弾かれたあと・落選したあとは灰色。
   let color = base.color;
   for (const h of hits) {
-    if (h.kind === 'cymbal' && beat >= h.time) color = CYMBAL_COLOR;
-    if (h.kind === 'trap' && beat >= h.time) color = TRAP_COLOR;
+    if (h.kind === 'cymbal' && beat >= h.time) color = DROPPED_COLOR;
+    if (h.kind === 'trap' && beat >= h.time) color = DROPPED_COLOR;
   }
+
+  // 伸び縮み: launch 以外の Hit に当たった直後 SQUASH_BEATS 拍のあいだ 1 → 0。
+  // Hit の間隔は最短 0.5 拍なので、同時に効くのは 1 つだけ。
+  let squash = 0;
+  for (const h of hits) {
+    if (h.kind === 'launch') continue;
+    const age = beat - h.time;
+    if (age >= 0 && age < SQUASH_BEATS) squash = 1 - age / SQUASH_BEATS;
+  }
+  const state = (pos: P3, radius: number, opacity: number, visible: boolean): BallState => ({
+    pos,
+    radius,
+    opacity,
+    color,
+    squash,
+    hollow: base.hollow,
+    visible,
+  });
 
   const last = hits[hits.length - 1];
   if (beat >= last.time) {
     const age = beat - last.time;
     const P = hitPoint(last, c, agentPos);
     if (last.kind === 'catch') {
-      // 受け皿の中で縮んで消える（位置は受け皿についていく）
+      // エージェントの円の中で縮んで消える（位置は円についていく）
       const s = Math.max(0, 1 - age / VANISH_CATCH);
-      return { pos: P, radius: BALL_R * scale * s, opacity: s, color, visible: s > 0 };
+      return state(P, BALL_R * scale * s, s, s > 0);
     }
     // scrap / reject: 箱の中へ沈みながら消える
     const s = Math.max(0, 1 - age / VANISH_BIN);
-    return {
-      pos: p3(P.x, P.y - age * 1.4, P.z),
-      radius: BALL_R * scale,
-      opacity: s,
-      color,
-      visible: s > 0,
-    };
+    return state(p3(P.x, P.y - age * 1.4, P.z), BALL_R * scale, s, s > 0);
   }
 
   // 今いる区間 hits[i] -> hits[i+1] を探す
@@ -95,11 +111,10 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
   // 放物線: 区間の両端でちょうど打点（u=0,1 で高さ 0）、中央で HOP_HEIGHT * dur²。
   // dur² に比例させるので、半拍の跳ねは 1/4 の高さ = 重力が一定に見える。
   const hop = HOP_HEIGHT * dur * dur * 4 * u * (1 - u);
-  return {
-    pos: p3(lerp(P0.x, P1.x, u), lerp(P0.y, P1.y, u) + hop, lerp(P0.z, P1.z, u)),
-    radius: BALL_R * scale,
-    opacity: 1,
-    color,
-    visible: true,
-  };
+  return state(
+    p3(lerp(P0.x, P1.x, u), lerp(P0.y, P1.y, u) + hop, lerp(P0.z, P1.z, u)),
+    BALL_R * scale,
+    1,
+    true,
+  );
 }

@@ -5,7 +5,7 @@ import { createAudio } from './audio/audio';
 import { setupControls } from './ui/controls';
 import { createFeedPanel } from './ui/feedPanel';
 import { createChart } from './ui/chart';
-import { buildLegend, wirePanelFold, wireStartCard } from './ui/hud';
+import { wireStartCard } from './ui/hud';
 import { DEFAULT_AGENT_COUNT, DEFAULT_BPM, DEFAULT_PARAMS } from './sim/config';
 import type { Params, World } from './sim/types';
 
@@ -34,11 +34,15 @@ let last = performance.now();
 
 const feedPanel = createFeedPanel(must<HTMLElement>('feed-panel'), (id) => selectAgent(id));
 const chart = createChart(must<HTMLElement>('chart-panel'));
+const dock = must<HTMLElement>('dock');
 
 function selectAgent(id: number | null): void {
   selected = id === selected ? null : id;
   renderer.setSelectedAgent(selected);
+  // パネルは選択中だけ出す。隠れている間は大きさが 0 で描かれないことがあるので、出し直すたびに更新する。
+  dock.hidden = selected === null;
   feedPanel.update(world, selected, params);
+  chart.update(world);
 }
 
 function resetWorld(): void {
@@ -47,6 +51,7 @@ function resetWorld(): void {
   selected = null;
   renderer.reset(world);
   renderer.setSelectedAgent(null);
+  dock.hidden = true;
   feedPanel.update(world, null, params);
   chart.update(world);
   controls.setStats(world.stats);
@@ -86,23 +91,13 @@ const controls = setupControls({
   onToggleGuide: () => setOverlays(false, !guideOpen),
 });
 
-buildLegend(must<HTMLElement>('legend'));
-
-// パネルの折りたたみ。狭い画面では最初から畳んでおく。
-const feedFold = wirePanelFold(must<HTMLElement>('feed-wrap'));
-const chartFold = wirePanelFold(must<HTMLElement>('chart-wrap'));
-if (window.innerWidth < 800) {
-  feedFold.set(true);
-  chartFold.set(true);
-}
-
 // ブラウザはユーザーの操作なしに音を出せないので、開始カードで音の有無を選ばせる。
 wireStartCard(must<HTMLElement>('start-card'), () => {
   audio.setEnabled(true);
   controls.setSoundOn(true);
 });
 
-// canvas 上のドラッグは視点操作なので、押してからほとんど動かずに離したときだけ選択する。
+// 押してからほとんど動かずに離したときだけクリックとみなして選択する。
 let dragStart: { x: number; y: number } | null = null;
 canvas.addEventListener('pointerdown', (e) => {
   dragStart = { x: e.clientX, y: e.clientY };

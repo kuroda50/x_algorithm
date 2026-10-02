@@ -5,15 +5,15 @@ import type { Candidate } from '../sim/types';
 import {
   BALL_R,
   ballState,
-  CYMBAL_COLOR,
+  DROPPED_COLOR,
   HOP_HEIGHT,
-  TRAP_COLOR,
+  SQUASH_BEATS,
   VANISH_BIN,
   VANISH_CATCH,
 } from './trajectory';
 import { hitPoint, type P3 } from './stageLayout';
 
-const AGENT: P3 = { x: 13, y: 0.8, z: 1 };
+const AGENT: P3 = { x: 22, y: 8.5, z: 0 };
 
 function mkCand(over: Partial<Candidate> = {}): Candidate {
   return {
@@ -79,7 +79,7 @@ describe('ballState', () => {
     const mid = ballState(c, end + VANISH_CATCH / 2, AGENT);
     expect(mid.visible).toBe(true);
     expect(mid.radius).toBeLessThan(BALL_R);
-    expect(mid.pos).toEqual(AGENT); // 受け皿についていく
+    expect(mid.pos).toEqual(AGENT); // 円についていく
     expect(ballState(c, end + VANISH_CATCH + 0.01, AGENT).visible).toBe(false);
   });
 
@@ -112,6 +112,7 @@ describe('ballState', () => {
         expect(Number.isFinite(s.pos.z)).toBe(true);
         expect(Number.isFinite(s.radius)).toBe(true);
         expect(Number.isFinite(s.opacity)).toBe(true);
+        expect(Number.isFinite(s.squash)).toBe(true);
       }
     }
   });
@@ -139,15 +140,34 @@ describe('ballState', () => {
     expect(ballState(zero, bassT(zero) + 0.2, AGENT).radius).toBeCloseTo(rFlat, 6);
   });
 
-  it('cymbal のあとは赤、trap のあとは灰色', () => {
+  it('cymbal のあとも trap のあとも灰色', () => {
     const dropped = mkCand({ dropStage: 1, dropReason: 'bad' });
     const cym = timeline(dropped).find((h) => h.kind === 'cymbal')!.time;
     expect(ballState(dropped, cym - 0.01, AGENT).color).toBe(TOPICS[0].color);
-    expect(ballState(dropped, cym + 0.01, AGENT).color).toBe(CYMBAL_COLOR);
+    expect(ballState(dropped, cym + 0.01, AGENT).color).toBe(DROPPED_COLOR);
 
     const rejected = mkCand({ dropStage: 4, dropReason: 'rank', rank: 3 });
     const trap = timeline(rejected).find((h) => h.kind === 'trap')!.time;
     expect(ballState(rejected, trap - 0.01, AGENT).color).toBe(TOPICS[0].color);
-    expect(ballState(rejected, trap + 0.01, AGENT).color).toBe(TRAP_COLOR);
+    expect(ballState(rejected, trap + 0.01, AGENT).color).toBe(DROPPED_COLOR);
+  });
+
+  it('当たった直後は squash が効き、0.12 拍で消える', () => {
+    const c = mkCand({ startBeat: 0, slot: 0 });
+    const hits = timeline(c);
+    const launch = hits[0].time;
+    const drum = hits[1].time;
+    // 発射直後は 0（launch には付かない）
+    expect(ballState(c, launch + 0.01, AGENT).squash).toBe(0);
+    // 当たった直後は 1 に近い
+    expect(ballState(c, drum + 0.01, AGENT).squash).toBeGreaterThan(0);
+    expect(ballState(c, drum, AGENT).squash).toBe(1);
+    // 0.12 拍より後は 0
+    expect(ballState(c, drum + SQUASH_BEATS + 0.01, AGENT).squash).toBe(0);
+  });
+
+  it('フォロー外のボールは hollow（輪）', () => {
+    expect(ballState(mkCand({ source: 'out' }), 0.5, AGENT).hollow).toBe(true);
+    expect(ballState(mkCand({ source: 'in' }), 0.5, AGENT).hollow).toBe(false);
   });
 });

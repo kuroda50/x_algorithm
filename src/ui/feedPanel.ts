@@ -95,21 +95,18 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
     el.append(list);
   }
 
-  function renderAgent(world: World, agent: Agent): void {
+  function renderAgent(agent: Agent): void {
     el.textContent = '';
     overviewSegs = null;
     const head = document.createElement('div');
     head.className = 'fp-head';
-    const dot = document.createElement('span');
-    dot.className = 'fp-dot';
-    dot.style.background = agentColor(agent.id, world.agents.length);
     const name = document.createElement('span');
     name.className = 'fp-name';
     name.textContent = agent.name;
     const follows = document.createElement('span');
     follows.className = 'fp-follows';
     follows.textContent = `フォロー ${agent.follows.size} 人`;
-    head.append(dot, name, follows);
+    head.append(name, follows);
 
     const interests = document.createElement('div');
     interests.className = 'fp-interests';
@@ -196,7 +193,7 @@ export function createFeedPanel(el: HTMLElement, onSelect: (agentId: number) => 
       }
       if (shownId !== selectedId) {
         shownId = selectedId;
-        renderAgent(world, agent);
+        renderAgent(agent);
       }
       // ヘッダと興味バーは反応で変わるので毎ビート更新
       const follows = el.querySelector<HTMLElement>('.fp-follows');

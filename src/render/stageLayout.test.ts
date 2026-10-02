@@ -11,11 +11,11 @@ import {
   REJECT_MOUTH,
   SCRAP_MOUTH,
   TRAP_RIM,
-  vibeBarZ,
+  vibeBarHit,
   type P3,
 } from './stageLayout';
 
-const AGENT: P3 = { x: 13, y: 0.8, z: 1 };
+const AGENT: P3 = { x: 22, y: 8.5, z: 0 };
 
 function mkCand(over: Partial<Candidate> = {}): Candidate {
   return {
@@ -67,13 +67,23 @@ describe('hitPoint', () => {
     const c = mkCand();
     const v0 = hitPoint({ time: 0, kind: 'vibe', index: 0 }, c, AGENT);
     const v9 = hitPoint({ time: 0, kind: 'vibe', index: VIBE_FREQS.length - 1 }, c, AGENT);
-    expect(v9.z - v0.z).toBeGreaterThan(5);
+    expect(v9.x - v0.x).toBeGreaterThan(5);
     const b0 = hitPoint({ time: 0, kind: 'bass', index: 0 }, c, AGENT);
     const b3 = hitPoint({ time: 0, kind: 'bass', index: 3 }, c, AGENT);
     expect(dist(b0, b3)).toBeGreaterThan(1);
     const l0 = hitPoint({ time: 0, kind: 'bell', index: 0 }, c, AGENT);
     const l2 = hitPoint({ time: 0, kind: 'bell', index: 2 }, c, AGENT);
     expect(dist(l0, l2)).toBeGreaterThan(2);
+  });
+
+  it('vibe は index が大きいほど打点が高い（右上の階段）', () => {
+    let prev = vibeBarHit(0);
+    for (let i = 1; i < VIBE_FREQS.length; i++) {
+      const p = vibeBarHit(i);
+      expect(p.y).toBeGreaterThan(prev.y);
+      expect(p.x).toBeGreaterThan(prev.x);
+      prev = p;
+    }
   });
 
   it('drum は全パッド分の打点を持つ', () => {
@@ -94,24 +104,24 @@ describe('hitPoint', () => {
 });
 
 describe('districtPos', () => {
-  it('中心から半径 DISTRICT_R の正 n 角形', () => {
+  it('中心から半径 DISTRICT_R の正 n 角形（XY 平面）', () => {
     for (let i = 0; i < 5; i++) {
       const p = districtPos(i, 5);
-      const d = Math.hypot(p.x - DISTRICT_CENTER.x, p.z - DISTRICT_CENTER.z);
+      const d = Math.hypot(p.x - DISTRICT_CENTER.x, p.y - DISTRICT_CENTER.y);
       expect(d).toBeCloseTo(DISTRICT_R, 6);
-      expect(p.y).toBe(0);
+      expect(p.z).toBe(0);
     }
     // 隣接する頂点の距離が等しい
     const gap = (i: number) => {
       const a = districtPos(i, 5);
       const b = districtPos(i + 1, 5);
-      return Math.hypot(a.x - b.x, a.z - b.z);
+      return Math.hypot(a.x - b.x, a.y - b.y);
     };
     expect(gap(0)).toBeCloseTo(gap(2), 6);
   });
 
-  it('vibeBarZ は VIBE_FREQS 分の等間隔', () => {
-    expect(vibeBarZ(0)).toBeCloseTo(-3.2);
-    expect(vibeBarZ(9)).toBeCloseTo(3.2);
+  it('vibeBarHit の両端', () => {
+    expect(vibeBarHit(0)).toEqual({ x: -3.6, y: 2.4, z: 0 });
+    expect(vibeBarHit(9)).toEqual({ x: 3.6, y: 7.35, z: 0 });
   });
 });
