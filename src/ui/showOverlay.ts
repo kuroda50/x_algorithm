@@ -101,7 +101,7 @@ export function createShowOverlay(
     btn('自由に操作する', '', handlers.onStartFree),
   );
   const hint = div('show-title-hint');
-  hint.textContent = 'Space 一時停止 / → 次の場面 / Esc 自由に操作';
+  hint.textContent = 'Space 一時停止 / ← → 場面の移動 / Esc 自由に操作';
   title.append(brand, balls, buildLogo(), sub, actions, hint);
 
   // --- 字幕（左下） ---

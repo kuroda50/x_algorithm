@@ -14,6 +14,7 @@ export interface ControlsCallbacks {
   onReset(): void;
   onToggleSettings(): void;
   onToggleGuide(): void;
+  onBackToTitle(): void;
 }
 
 export interface Controls {
@@ -39,6 +40,7 @@ const ICONS = {
   reset: `${SVG_OPEN}<path d="M8 2a6 6 0 1 0 6 6h-1.6A4.4 4.4 0 1 1 8 3.6V6l4.2-3.2L8 0v2z" fill="currentColor"/></svg>`,
   settings: `${SVG_OPEN}<path d="M2 4.5h12M2 8h12M2 11.5h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="5.5" cy="4.5" r="1.7" fill="currentColor"/><circle cx="10.5" cy="8" r="1.7" fill="currentColor"/><circle cx="6.5" cy="11.5" r="1.7" fill="currentColor"/></svg>`,
   guide: `${SVG_OPEN}<circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6.4 5.9a1.7 1.7 0 1 1 2.4 1.7c-.7.35-.8.7-.8 1.4v.3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".85" fill="currentColor"/></svg>`,
+  home: `${SVG_OPEN}<path d="M8 1.8 1.5 7.6h1.9V14h3.4v-4h2.4v4h3.4V7.6h1.9z" fill="currentColor"/></svg>`,
 };
 
 interface SliderDef {
@@ -142,9 +144,10 @@ export function setupControls(opts: ControlsOptions): Controls {
   const btnGuide = makeButton(ICONS.guide, '見方', () => opts.onToggleGuide());
   btnGuide.setAttribute('aria-controls', 'guide-panel');
   btnGuide.setAttribute('aria-expanded', 'false');
+  const btnHome = makeButton(ICONS.home, 'タイトルに戻る', () => opts.onBackToTitle());
   const stats = document.createElement('span');
   stats.className = 'stats';
-  buttonsEl.append(btnSound, btnPause, btnReset, btnSettings, btnGuide, stats);
+  buttonsEl.append(btnHome, btnSound, btnPause, btnReset, btnSettings, btnGuide, stats);
 
   function renderSound(): void {
     const label = soundOn ? '音を止める' : '音を鳴らす';

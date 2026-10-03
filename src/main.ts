@@ -108,6 +108,7 @@ const controls = setupControls({
   onReset: () => resetWorld(),
   onToggleSettings: () => setOverlays(!settingsOpen, false),
   onToggleGuide: () => setOverlays(false, !guideOpen),
+  onBackToTitle: () => backToTitle(),
 });
 
 const overlay = createShowOverlay(must<HTMLElement>('show-root'), {
@@ -170,6 +171,46 @@ function startFree(): void {
   resetWorld();
 }
 
+// タイトル画面に戻す。自由操作と同じ片付けをしてから、進行を止めてタイトルを出す。
+function backToTitle(): void {
+  startFree();
+  setOverlays(false, false);
+  mode = 'title';
+  overlay.showTitle();
+}
+
+// 発表を target の拍まで巻き戻す。同じシードで世界を作り直し、その拍まで描画と音なしで進め直す。
+function seekShow(target: number): void {
+  resetWorld(SHOW_SEED);
+  funnelBatch = null;
+  overlay.setFunnel(null);
+  sceneIndex = -1; // 次のフレームで場面を出し直す
+  skipUntil = target > 0 ? target : null;
+  beat = target;
+}
+
+let rewinding = false; // 締めの画面から戻すシャッターの途中（← の連打で二重に走らせない）
+
+// 締めの画面から、最後の場面の最初に戻して発表を続ける。
+function backFromEnding(): void {
+  if (rewinding) return;
+  rewinding = true;
+  void overlay
+    .shutter(() => {
+      overlay.hideEnding();
+      audio.setEnabled(true);
+      controls.setSoundOn(true);
+      paused = false;
+      controls.setPaused(false);
+      overlay.setPausedBadge(false);
+      seekShow(SCENES[SCENES.length - 1].startBeat);
+    })
+    .then(() => {
+      if (mode === 'ending') mode = 'show';
+      rewinding = false;
+    });
+}
+
 function currentBubble(): number {
   const m = world.metrics;
   return m.length > 0 ? m[m.length - 1].bubble : 0;
@@ -187,9 +228,8 @@ function updateFunnel(): void {
   overlay.setFunnel({ ...funnelBatch, active });
 }
 
-// 発表の進行中だけ効くキー操作。入力欄にフォーカスがあるときは無視する。
+// 画面モードごとのキー操作。入力欄にフォーカスがあるときは無視する。
 window.addEventListener('keydown', (e) => {
-  if (mode !== 'show') return;
   const t = e.target as HTMLElement | null;
   if (
     t &&
@@ -200,12 +240,12 @@ window.addEventListener('keydown', (e) => {
   ) {
     return;
   }
-  if (e.code === 'Space') {
+  if (e.code === 'Space' && mode === 'show') {
     e.preventDefault();
     paused = !paused;
     controls.setPaused(paused);
     overlay.setPausedBadge(paused);
-  } else if (e.code === 'ArrowRight') {
+  } else if (e.code === 'ArrowRight' && mode === 'show') {
     e.preventDefault();
     const next =
       sceneIndexAt(beat) + 1 < SCENES.length
@@ -215,8 +255,17 @@ window.addEventListener('keydown', (e) => {
       skipUntil = next;
       beat = next;
     }
+  } else if (e.code === 'ArrowLeft') {
+    if (mode === 'show') {
+      e.preventDefault();
+      seekShow(SCENES[Math.max(0, sceneIndexAt(beat) - 1)].startBeat);
+    } else if (mode === 'ending') {
+      e.preventDefault();
+      backFromEnding();
+    }
   } else if (e.code === 'Escape') {
-    startFree();
+    if (mode === 'show') startFree();
+    else if (mode === 'free') backToTitle();
   }
 });
 
@@ -310,7 +359,7 @@ function frame(ts: number): void {
         controls.setStats(world.stats);
       }
       if (skipUntil !== null && world.beat >= skipUntil) skipUntil = null;
-      if (mode === 'show' && SCENES[sceneIndex].showBubble) {
+      if (mode === 'show' && sceneIndex >= 0 && SCENES[sceneIndex].showBubble) {
         overlay.setBubble(currentBubble());
       }
     }
