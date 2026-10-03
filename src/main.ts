@@ -11,11 +11,13 @@ import {
   SCENES,
   SHOW_END_BEAT,
   SHOW_SEED,
+  TOUR_END_BEAT,
   bpmAt,
   learningRateAt,
   requestAt,
   sceneIndexAt,
 } from './show/director';
+import { assignTour } from './show/tour';
 import type { Params, World } from './sim/types';
 
 function must<T extends HTMLElement>(id: string): T {
@@ -135,6 +137,7 @@ function startShow(): void {
       const scene = SCENES[sceneIndex];
       overlay.setScene(scene);
       renderer.setView(scene.view);
+      renderer.setTour(scene.step !== null);
       overlay.setBubble(null);
       overlay.setFunnel(null);
     })
@@ -154,6 +157,7 @@ function startFree(): void {
   overlay.setPausedBadge(false);
   document.body.classList.remove('show-running');
   renderer.setView(null);
+  renderer.setTour(false);
   bpm = DEFAULT_BPM;
   params.learningRate = DEFAULT_PARAMS.learningRate;
   paused = false;
@@ -231,6 +235,12 @@ canvas.addEventListener('pointerup', (e) => {
 
 resetWorld();
 overlay.showTitle();
+// 開発時の確認用: ?autoshow を付けて開くと、クリックなしで発表を始める
+// ?seek=27.5 も付けると、その拍まで飛ばして止める（画面の確認用）
+const devQuery = import.meta.env.DEV ? new URLSearchParams(location.search) : null;
+let devSeek: number | null = devQuery?.has('seek') ? Number(devQuery.get('seek')) : null;
+let devSettle = 0; // 止めたあと、カメラを目的の範囲まで寄せきるために描画に渡す dt の残り回数
+if (devQuery?.has('autoshow')) startShow();
 
 function frame(ts: number): void {
   if (mode === 'show') {
@@ -242,6 +252,7 @@ function frame(ts: number): void {
       const scene = SCENES[si];
       overlay.setScene(scene);
       renderer.setView(scene.view);
+      renderer.setTour(scene.step !== null);
       overlay.setBubble(scene.showBubble ? currentBubble() : null);
       updateFunnel();
     }
@@ -257,6 +268,13 @@ function frame(ts: number): void {
       });
     }
   }
+  if (devSeek !== null && mode === 'show') {
+    skipUntil = devSeek;
+    beat = devSeek;
+    devSeek = null;
+    paused = true;
+    devSettle = 4;
+  }
   const running = (mode === 'free' || mode === 'show') && !paused;
   const dt = running ? Math.min(0.1, (ts - last) / 1000) : 0;
   last = ts;
@@ -269,8 +287,12 @@ function frame(ts: number): void {
       if (mode === 'show') {
         params.learningRate = learningRateAt(world.beat + 1, DEFAULT_PARAMS.learningRate);
       }
-      // 発表中は工程の紹介が終わるまで 4 拍に 1 回だけフィード要求する（飛ばし中も同じ判定）
+      // 発表中は工程の紹介が終わるまで、TOUR_SPAWN_BEAT の拍に 1 回だけフィード要求する
       const events = stepBeat(world, params, mode !== 'show' || requestAt(world.beat + 1));
+      // 紹介中に発射された候補はベルトコンベアの時刻表を付ける（renderer/audio より先に）
+      if (mode === 'show' && events.spawned.length > 0 && world.beat < TOUR_END_BEAT) {
+        assignTour(events.spawned);
+      }
       // 個数の表示は、発射があった拍だけ更新してあとは前の値を出し続ける
       if (events.spawned.length > 0) {
         funnelBatch = {
@@ -293,7 +315,8 @@ function frame(ts: number): void {
       }
     }
   }
-  renderer.draw(world, beat, dt);
+  renderer.draw(world, beat, devSettle > 0 ? 5 : dt);
+  if (devSettle > 0) devSettle--;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

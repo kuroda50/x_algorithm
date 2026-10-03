@@ -5,7 +5,17 @@ import * as THREE from 'three';
 import { TOPICS } from '../sim/config';
 import { VIBE_FREQS } from '../show/score';
 import {
+  TOUR_X_BELL,
+  TOUR_X_DIVERSITY,
+  TOUR_X_END,
+  TOUR_X_PRESS,
+  TOUR_X_REJECT,
+  TOUR_X_SCORE,
+  TOUR_X_SCRAP,
+} from '../show/tour';
+import {
   AGENT_R,
+  BALL_R,
   BASS_STRING_LEN,
   bassStringHit,
   BELL_R,
@@ -20,12 +30,18 @@ import {
   PIPE_OUT_MOUTH,
   REJECT_BIN,
   SCRAP_BIN,
+  TOUR_BELT_Y,
+  TOUR_BIN_TOP_Y,
+  TOUR_DOOR_W,
+  TOUR_PIPE_IN_MOUTH,
+  TOUR_PIPE_OUT_MOUTH,
   TRAP_RIM,
   VIBE_BAR_LEN,
   VIBE_BAR_T,
   vibeBarHit,
   type P3,
 } from './stageLayout';
+import { JAW_REST } from './tourMotion';
 
 // 色の定数。白い紙に黒い線の線画。色がつくのは話題・ボール・火花だけ。
 export const PAPER = '#ffffff'; // 紙の白。背景と装置の中の塗り
@@ -200,13 +216,13 @@ function buildPress(): Press {
   return { group: g, headMat, restY };
 }
 
-// 選抜の床の扉。TRAP_RIM を上面の中心とする水平の板を、左端の蝶番まわりに回して開く。
+// 選抜の床の扉。(cx, topY) を上面の中心とする水平の板を、左端の蝶番まわりに回して開く。
 const TRAP_DOOR_W = 1.4;
 const TRAP_DOOR_T = 0.14;
-function buildTrapDoor(): TrapDoor {
+function buildTrapDoor(cx: number, topY: number, w = TRAP_DOOR_W, t = TRAP_DOOR_T): TrapDoor {
   const hinge = new THREE.Group();
-  hinge.position.set(TRAP_RIM.x - TRAP_DOOR_W / 2, TRAP_RIM.y - TRAP_DOOR_T / 2, 0);
-  hinge.add(rect(TRAP_DOOR_W, TRAP_DOOR_T, inkMat, TRAP_DOOR_W / 2, 0));
+  hinge.position.set(cx - w / 2, topY - t / 2, 0);
+  hinge.add(rect(w, t, inkMat, w / 2, 0));
   const pin = strokeCircle(0.12, paperMat); // 蝶番の輪
   pin.position.z = 0.01;
   hinge.add(pin);
@@ -333,7 +349,7 @@ export function buildStage(): Stage {
   }
 
   // 落選の床の扉
-  const trapDoor = buildTrapDoor();
+  const trapDoor = buildTrapDoor(TRAP_RIM.x, TRAP_RIM.y);
   group.add(trapDoor.hinge);
 
   return {
@@ -345,6 +361,158 @@ export function buildStage(): Stage {
     bells,
     press,
     trapDoor,
+    pipes,
+    scrapBin,
+    rejectBin,
+  };
+}
+
+// --- 工程の紹介（最初の 64 拍）のベルトコンベア ---
+// 下の階（ベルトの上面 y = TOUR_BELT_Y）に並ぶ機械。renderer が TourMachineState を当てて動かす。
+export interface TourLine {
+  group: THREE.Group; // 全体。renderer が visible を切り替える
+  press: {
+    group: THREE.Group;
+    headMat: THREE.MeshBasicMaterial;
+    restY: number;
+    travel: number; // 当たったときヘッドが降りる距離
+  };
+  scrapDoor: { hinge: THREE.Group };
+  rejectDoor: { hinge: THREE.Group };
+  gauge: { fill: THREE.Mesh; fillMat: THREE.MeshBasicMaterial; height: number }; // fill は下端を基準に scale.y で伸ばす
+  jaws: { left: THREE.Object3D; right: THREE.Object3D };
+  bell: { mesh: THREE.Object3D; mat: THREE.MeshBasicMaterial };
+  pipes: Pipe[]; // [フォロー内, フォロー外]
+  scrapBin: THREE.Group;
+  rejectBin: THREE.Group;
+}
+
+const TOUR_BELT_T = 0.3; // ベルトの厚さ
+export const TOUR_JAW_W = 0.3; // しぼり機の板の幅
+const TOUR_JAW_H = 1.3; // しぼり機の板の高さ
+
+export function buildTourLine(): TourLine {
+  const group = new THREE.Group();
+
+  // ベルト。扉の位置で切れた 3 本（輪郭つき矩形、塗りは PAPER）
+  const beltSeg = (x0: number, x1: number) => {
+    const b = strokeRect(x1 - x0, TOUR_BELT_T, paperMat);
+    b.position.set((x0 + x1) / 2, TOUR_BELT_Y - TOUR_BELT_T / 2, -0.01);
+    group.add(b);
+  };
+  beltSeg(-16.6, TOUR_X_SCRAP - TOUR_DOOR_W / 2);
+  beltSeg(TOUR_X_SCRAP + TOUR_DOOR_W / 2, TOUR_X_REJECT - TOUR_DOOR_W / 2);
+  beltSeg(TOUR_X_REJECT + TOUR_DOOR_W / 2, TOUR_X_END + 0.7);
+
+  // 切れ目をふさぐ扉 2 つ（上面が TOUR_BELT_Y、左端の蝶番まわりに下へ開く）
+  const scrapDoor = buildTrapDoor(TOUR_X_SCRAP, TOUR_BELT_Y, TOUR_DOOR_W);
+  const rejectDoor = buildTrapDoor(TOUR_X_REJECT, TOUR_BELT_Y, TOUR_DOOR_W);
+  group.add(scrapDoor.hinge);
+  group.add(rejectDoor.hinge);
+
+  // 除外箱・落選箱（口が TOUR_BIN_TOP_Y）
+  const scrapBin = openBin(inkMat);
+  scrapBin.position.set(TOUR_X_SCRAP, TOUR_BIN_TOP_Y - BIN_SIZE.h, 0);
+  group.add(scrapBin);
+  const rejectBin = openBin(inkMat);
+  rejectBin.position.set(TOUR_X_REJECT, TOUR_BIN_TOP_Y - BIN_SIZE.h, 0);
+  group.add(rejectBin);
+
+  // 紹介用のパイプ（フォロー内は淡い塗り、フォロー外は中空）
+  const pipes = [buildPipe(TOUR_PIPE_IN_MOUTH, false), buildPipe(TOUR_PIPE_OUT_MOUTH, true)];
+  for (const p of pipes) group.add(p.group);
+
+  // プレス。ふだんはヘッドの下面がベルトの上 2.6 で待ち、当たるときボールの上端まで降りる
+  const pressRestY = TOUR_BELT_Y + 2.6;
+  const pressG = new THREE.Group();
+  const headMat = basic(PAPER);
+  const head = strokeRect(PRESS_HEAD_W, PRESS_HEAD_H, headMat);
+  head.position.set(0, PRESS_HEAD_H / 2, 0.01); // 下面が group の原点
+  pressG.add(head);
+  const shaftTop = TOUR_BELT_Y + 9 - pressRestY; // group の原点から軸の上端まで
+  const shaft = strokeRect(PRESS_SHAFT_W, shaftTop - PRESS_HEAD_H, paperMat);
+  shaft.position.set(0, (PRESS_HEAD_H + shaftTop) / 2, -0.01);
+  pressG.add(shaft);
+  pressG.position.set(TOUR_X_PRESS, pressRestY, 0);
+  group.add(pressG);
+  const press = {
+    group: pressG,
+    headMat,
+    restY: pressRestY,
+    travel: pressRestY - (TOUR_BELT_Y + 2 * BALL_R),
+  };
+
+  // 計測ゲート。ベルトをまたぐ門（左右の柱＋横木）と、横木の上に立てた縦長の計器
+  const GATE_HALF_W = 0.95;
+  const GATE_H = 2.0;
+  for (const s of [-1, 1]) {
+    group.add(
+      rect(STROKE, GATE_H, inkMat, TOUR_X_SCORE + s * GATE_HALF_W, TOUR_BELT_Y + GATE_H / 2),
+    );
+  }
+  group.add(
+    rect(2 * GATE_HALF_W + STROKE, STROKE, inkMat, TOUR_X_SCORE, TOUR_BELT_Y + GATE_H),
+  );
+  const GAUGE_W = 0.5;
+  const GAUGE_H = 2.4;
+  const gaugeBox = strokeRect(GAUGE_W, GAUGE_H, paperMat);
+  gaugeBox.position.set(TOUR_X_SCORE, TOUR_BELT_Y + GATE_H + GAUGE_H / 2, -0.01);
+  group.add(gaugeBox);
+  const FILL_H = GAUGE_H - 2 * STROKE;
+  const fillMat = basic(PAPER);
+  const fillGeo = new THREE.PlaneGeometry(0.36, FILL_H);
+  fillGeo.translate(0, FILL_H / 2, 0); // 下端を原点に → scale.y で下から伸ばす
+  const fill = new THREE.Mesh(fillGeo, fillMat);
+  fill.position.set(TOUR_X_SCORE, TOUR_BELT_Y + GATE_H + STROKE, 0.01);
+  group.add(fill);
+  const gauge = { fill, fillMat, height: FILL_H };
+
+  // しぼり機。ベルトの上を滑る左右の縦の板（外側に板を押す短い横棒つき）
+  const mkJaw = (side: number): THREE.Object3D => {
+    const j = new THREE.Group();
+    j.add(strokeRect(TOUR_JAW_W, TOUR_JAW_H, paperMat));
+    j.add(rect(0.8, STROKE, inkMat, side * (TOUR_JAW_W / 2 + 0.4), 0));
+    j.position.set(
+      TOUR_X_DIVERSITY + side * (JAW_REST + TOUR_JAW_W / 2),
+      TOUR_BELT_Y + 0.05 + TOUR_JAW_H / 2,
+      0.02,
+    );
+    group.add(j);
+    return j;
+  };
+  const jaws = { left: mkJaw(-1), right: mkJaw(1) };
+
+  // ベル。ベルトの上 1.7 に底辺が来るよう上から吊るす
+  const bellMat = basic(PAPER);
+  const bellG = new THREE.Group();
+  bellG.add(
+    new THREE.Mesh(new THREE.CircleGeometry(BELL_R - STROKE, 32, 0, Math.PI), bellMat),
+  );
+  const bellArc = new THREE.Mesh(
+    new THREE.RingGeometry(BELL_R - STROKE, BELL_R, 32, 1, 0, Math.PI),
+    inkMat,
+  );
+  bellArc.position.z = 0.01;
+  bellG.add(bellArc);
+  bellG.add(rect(2 * BELL_R, STROKE, inkMat, 0, 0, 0.01));
+  bellG.position.set(TOUR_X_BELL, TOUR_BELT_Y + 1.7, 0);
+  group.add(bellG);
+  group.add(
+    rect(STROKE, 2.6, hairMat, TOUR_X_BELL, TOUR_BELT_Y + 1.7 + BELL_R + 1.3, -0.01),
+  );
+  const bell = { mesh: bellG, mat: bellMat };
+
+  // 発射台（ベルトの右端の上面に重ねた短い太線。動かさない）
+  group.add(rect(0.9, 0.14, inkMat, TOUR_X_END, TOUR_BELT_Y + 0.07, 0.02));
+
+  return {
+    group,
+    press,
+    scrapDoor,
+    rejectDoor,
+    gauge,
+    jaws,
+    bell,
     pipes,
     scrapBin,
     rejectBin,

@@ -3,6 +3,7 @@
 // 3D 描画と音の両方がここを読む。DOM にも AudioContext にも依存しない。
 // 時刻の単位はすべてビート（小数）。
 import type { Candidate } from '../sim/types';
+import { tourTimes } from './tour';
 
 export const SLOTS_PER_BEAT = 4; // 1 拍を 16 分音符 4 つに分けて発射する
 
@@ -15,7 +16,7 @@ export type HitKind =
   | 'vibe' // スコアリング。index: 鍵盤の添字 0..VIBE_FREQS.length-1
   | 'bass' // 多様性調整。index: 弦の添字 0..3（= slot）
   | 'bell' // 選抜を通過。index: ベルの添字 0..2（= rank）
-  | 'trap' // 選抜で落選し、落とし穴の縁に当たる。index: 0
+  | 'trap' // 選抜で落選し、落とし穴の縁に当たる。index: 0 = 落選の扉、1 = 紹介の除外の扉
   | 'reject' // 落選箱に落ちる（終点）。index: 0
   | 'catch'; // エージェントが受け止める（終点）。index: agentId
 
@@ -109,6 +110,7 @@ export function topicFreq(topic: number): number {
 
 // ボール 1 個の時刻表。time の昇順で、最後の要素が終点。
 export function timeline(c: Candidate): Hit[] {
+  if (c.tour) return tourTimeline(c);
   const t0 = c.startBeat + c.slot / SLOTS_PER_BEAT;
   const hits: Hit[] = [
     { time: t0, kind: 'launch', index: c.source === 'in' ? 0 : 1 },
@@ -128,5 +130,43 @@ export function timeline(c: Candidate): Hit[] {
   }
   hits.push({ time: t0 + 4, kind: 'bell', index: bellIndex(c) });
   hits.push({ time: t0 + 5, kind: 'catch', index: c.agentId });
+  return hits;
+}
+
+// 工程の紹介（ベルトコンベア）で流すボールの時刻表。
+// 絶対時刻は show/tour.ts の tourTimes が決める。Hit の kind は合奏と同じものを使うので、
+// 音（audio/schedule.ts）と描画の pulse はそのまま鳴る・光る。
+// パイプから出る（launch）→ ベルトに落ちる（drum: ハット / シェイカー）
+//   → プレス（通過はキック、除外はシンバル）→〔除外〕扉（trap:1）→ 除外箱（scrap）
+//   → 計測ゲート（vibe）→ しぼり機（bass）
+//   →〔落選〕扉が開く（trap:0）→ 落選箱（reject）
+//   →〔通過〕ベル（bell）→ 発射台から飛んでエージェントへ（catch）
+// 通過したボールは select と発射台の launch に Hit を持たない（扉が開かないことが答え）。
+function tourTimeline(c: Candidate): Hit[] {
+  const T = tourTimes(c);
+  const hits: Hit[] = [
+    { time: T.emerge, kind: 'launch', index: c.source === 'in' ? 0 : 1 },
+    {
+      time: T.land,
+      kind: 'drum',
+      index: DRUM_PADS.indexOf(c.source === 'in' ? 'hat' : 'shaker'),
+    },
+  ];
+  if (c.dropStage === 1) {
+    hits.push({ time: T.filter, kind: 'cymbal', index: 0 });
+    hits.push({ time: T.scrapDoor!, kind: 'trap', index: 1 });
+    hits.push({ time: T.scrap!, kind: 'scrap', index: 0 });
+    return hits;
+  }
+  hits.push({ time: T.filter, kind: 'drum', index: DRUM_PADS.indexOf('kick') });
+  hits.push({ time: T.score!, kind: 'vibe', index: vibeBar(c) });
+  hits.push({ time: T.diversity!, kind: 'bass', index: c.slot });
+  if (c.dropStage === 4) {
+    hits.push({ time: T.select!, kind: 'trap', index: 0 });
+    hits.push({ time: T.reject!, kind: 'reject', index: 0 });
+    return hits;
+  }
+  hits.push({ time: T.bell!, kind: 'bell', index: bellIndex(c) });
+  hits.push({ time: T.catch!, kind: 'catch', index: c.agentId });
   return hits;
 }

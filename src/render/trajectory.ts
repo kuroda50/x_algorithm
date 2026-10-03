@@ -5,17 +5,29 @@ import type { Candidate } from '../sim/types';
 import { TOPICS } from '../sim/config';
 import { timeline } from '../show/score';
 import { clamp01, hitPoint, p3, type P3 } from './stageLayout';
+import { tourBallState } from './tourMotion';
 
-export const HOP_HEIGHT = 3.0; // 1 拍の区間で跳ねたときの最高到達点
-export const BALL_R = 0.34; // 基準の半径
+export {
+  BALL_R,
+  DROPPED_COLOR,
+  HOP_HEIGHT,
+  SIZE_BLEND,
+  SQUASH_BEATS,
+  VANISH_BIN,
+  VANISH_CATCH,
+} from './stageLayout';
+import {
+  BALL_R,
+  DROPPED_COLOR,
+  HOP_HEIGHT,
+  SIZE_BLEND,
+  SQUASH_BEATS,
+  VANISH_BIN,
+  VANISH_CATCH,
+} from './stageLayout';
+
 export const TAIL_STEPS = 5; // 尾の数
 export const TAIL_DT = 0.016; // 尾 1 つ分の時間差（ビート）
-export const VANISH_CATCH = 0.25; // 受け止められて縮んで消えるまでのビート数
-export const VANISH_BIN = 0.3; // 箱に落ちて消えるまでのビート数
-export const SIZE_BLEND = 0.15; // 大きさが切り替わるまでのビート数
-export const SQUASH_BEATS = 0.12; // 当たった直後に伸び縮みするビート数
-
-export const DROPPED_COLOR = '#b8b8b8'; // 除外・落選したあとの色（色は話題だけに使う）
 
 export interface BallState {
   pos: P3;
@@ -36,6 +48,8 @@ const smooth = (u: number): number => {
 
 // ボール 1 個の今の状態。beat は小数のビート位置、agentPos は捕まえるエージェントの円の今の位置。
 export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
+  // 工程の紹介で流すボールはベルトコンベアの動き（render/tourMotion.ts）で決める
+  if (c.tour) return tourBallState(c, beat, agentPos);
   const hits = timeline(c);
   const first = hits[0];
   const base: BallState = {

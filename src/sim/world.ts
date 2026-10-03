@@ -135,7 +135,9 @@ export function createWorld(seed: number, agentCount: number): World {
 }
 
 // 候補が画面から消えてよいビート。届く: startBeat+5、フィルタ除外: +1、落選: +4。
+// 紹介のボール（doneBeat 付き）は、届く・落ちる出来事が起きる拍を直接持つ。
 function endBeat(c: Candidate): number {
+  if (c.doneBeat !== undefined) return c.doneBeat;
   if (c.dropStage === 1) return c.startBeat + 1;
   if (c.dropStage === 4) return c.startBeat + 4;
   return c.startBeat + PIPELINE_BEATS;
@@ -211,20 +213,14 @@ export function stepBeat(world: World, params: Params, request = true): BeatEven
 
   // 2. このビートの移動の終わりにエージェントへ届く候補
   for (const cand of world.candidates) {
-    if (cand.dropStage === null && cand.startBeat + PIPELINE_BEATS === beat) {
+    if (cand.dropStage === null && endBeat(cand) === beat) {
       events.delivered.push(deliver(world, cand, params, beat));
     }
   }
 
   // 3. このビートの移動の終わりに除外・落選する候補
   for (const cand of world.candidates) {
-    const at =
-      cand.dropStage === 1
-        ? cand.startBeat + 1
-        : cand.dropStage === 4
-          ? cand.startBeat + 4
-          : -1;
-    if (at === beat) {
+    if (cand.dropStage !== null && endBeat(cand) === beat) {
       events.dropped.push(cand);
       if (cand.dropStage === 1) world.stats.dropped++;
     }

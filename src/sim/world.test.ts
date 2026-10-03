@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, FEED_KEEP, TOPICS } from './config';
 import { feedDistribution } from './metrics';
 import { createWorld, stepBeat } from './world';
-import type { Params, World } from './types';
+import type { Candidate, Params, World } from './types';
 
 function run(world: World, params: Params, beats: number): void {
   for (let i = 0; i < beats; i++) stepBeat(world, params);
@@ -78,6 +78,62 @@ describe('フィード要求', () => {
     expect(postsBefore).toBeGreaterThan(0); // 投稿の生成は止まらない
     const next = stepBeat(world, DEFAULT_PARAMS);
     expect(next.spawned.length).toBeGreaterThan(0);
+  });
+});
+
+describe('doneBeat', () => {
+  function bareCand(world: World, over: Partial<Candidate>): Candidate {
+    return {
+      id: world.nextCandidateId++,
+      agentId: 0,
+      postId: -1,
+      topic: 0,
+      authorId: 0,
+      source: 'in',
+      startBeat: 0,
+      slot: 0,
+      pLike: 0,
+      pReply: 0,
+      pRepost: 0,
+      score: 1,
+      scoreNorm: 0.5,
+      adjusted: 1,
+      rank: 0,
+      dropStage: null,
+      dropReason: null,
+      ...over,
+    };
+  }
+
+  it('doneBeat を付けた候補はその拍に delivered / dropped に入る', () => {
+    const world = createWorld(7, 8);
+    const ok = bareCand(world, { dropStage: null, doneBeat: 10 });
+    const ng = bareCand(world, { dropStage: 4, dropReason: 'rank', doneBeat: 7 });
+    const out = bareCand(world, { dropStage: 1, dropReason: 'bad', doneBeat: 5 });
+    world.candidates.push(ok, ng, out);
+    let deliveredAt = -1;
+    const droppedAt: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const events = stepBeat(world, DEFAULT_PARAMS, false);
+      if (events.delivered.some((d) => d.candidate === ok)) deliveredAt = events.beat;
+      for (const c of events.dropped) {
+        if (c === ng || c === out) droppedAt.push(events.beat);
+      }
+    }
+    expect(deliveredAt).toBe(10);
+    expect(droppedAt).toEqual([5, 7]); // out が 5、ng が 7
+  });
+
+  it('doneBeat がない候補は startBeat から決まる（今までどおり）', () => {
+    const world = createWorld(7, 8);
+    const c = bareCand(world, { dropStage: null });
+    world.candidates.push(c);
+    let deliveredAt = -1;
+    for (let i = 0; i < 8; i++) {
+      const events = stepBeat(world, DEFAULT_PARAMS, false);
+      if (events.delivered.some((d) => d.candidate === c)) deliveredAt = events.beat;
+    }
+    expect(deliveredAt).toBe(5); // startBeat 0 + PIPELINE_BEATS 5
   });
 });
 

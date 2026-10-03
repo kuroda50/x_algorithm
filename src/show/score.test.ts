@@ -13,6 +13,7 @@ import {
   topicFreq,
   vibeBar,
 } from './score';
+import { assignTour } from './tour';
 import type { Candidate } from '../sim/types';
 
 function cand(over: Partial<Candidate> = {}): Candidate {
@@ -99,6 +100,82 @@ describe('timeline', () => {
         expect(hits[0].time).toBe(10 + slot / 4);
       }
     }
+  });
+});
+
+describe('timeline（工程の紹介）', () => {
+  // in 4 個・out 4 個の 1 回分に tour を付ける。drops: in0..in3, out0..out3 の順。
+  function tourBatch(drops: (1 | 4 | null)[]): Candidate[] {
+    const list: Candidate[] = [];
+    let id = 0;
+    for (const source of ['in', 'out'] as const) {
+      for (let slot = 0; slot < 4; slot++) {
+        list.push(
+          cand({ id: id * 10 + slot, agentId: id, source, slot, dropStage: drops[id] ?? null }),
+        );
+        id++;
+      }
+    }
+    assignTour(list);
+    return list;
+  }
+
+  it('tour を持つ候補は紹介の時刻表を返し、最後が scrap / reject / catch のどれか', () => {
+    const b = tourBatch([1, null, 4, null, 4, 1, null, null]);
+    for (const c of b) {
+      const hits = timeline(c);
+      for (let i = 1; i < hits.length; i++) {
+        expect(hits[i].time).toBeGreaterThan(hits[i - 1].time);
+      }
+      const last = hits.at(-1)!.kind;
+      if (c.dropStage === 1) expect(last).toBe('scrap');
+      else if (c.dropStage === 4) expect(last).toBe('reject');
+      else expect(last).toBe('catch');
+    }
+  });
+
+  it('届く紹介ボール: launch → drum → drum → vibe → bass → bell → catch', () => {
+    const b = tourBatch([null, null, null, null, null, null, null, null]);
+    const hits = timeline(b[0]); // k=0 は in slot0
+    expect(hits.map((h) => h.kind)).toEqual([
+      'launch',
+      'drum',
+      'drum',
+      'vibe',
+      'bass',
+      'bell',
+      'catch',
+    ]);
+    expect(hits[0].index).toBe(0); // フォロー内のパイプ
+    expect(hits[1].index).toBe(DRUM_PADS.indexOf('hat')); // ベルトに落ちる: ハット
+    expect(hits[2].index).toBe(DRUM_PADS.indexOf('kick')); // プレス通過: キック
+  });
+
+  it('除外の紹介ボール: launch → drum → cymbal → trap → scrap', () => {
+    const b = tourBatch([1, null, null, null, null, null, null, null]);
+    const hits = timeline(b[0]);
+    expect(hits.map((h) => h.kind)).toEqual(['launch', 'drum', 'cymbal', 'trap', 'scrap']);
+    expect(hits[3].index).toBe(1); // 紹介の除外の扉
+  });
+
+  it('落選の紹介ボール: 〜 trap(index 0) → reject', () => {
+    const b = tourBatch([4, null, null, null, null, null, null, null]);
+    const hits = timeline(b[0]);
+    expect(hits.map((h) => h.kind)).toEqual([
+      'launch',
+      'drum',
+      'drum',
+      'vibe',
+      'bass',
+      'trap',
+      'reject',
+    ]);
+    expect(hits[5].index).toBe(0); // 選抜の扉
+  });
+
+  it('tour を持たない候補の時刻表は変わらない', () => {
+    const hits = timeline(cand({ startBeat: 10, slot: 0 }));
+    expect(hits.map((h) => h.time)).toEqual([10, 11, 12, 13, 14, 15]);
   });
 });
 

@@ -1,5 +1,6 @@
 // 発表の進行表。どの拍で・どこにカメラを寄せて・どの字幕を出すかを決める純粋なデータと関数。
 // DOM にも AudioContext にも触れない。main.ts が拍の位置からここを引く。
+import { TOUR_SPAWN_BEAT } from './tour';
 
 // カメラが収める範囲（ワールド座標。x 右・y 上）
 export interface ShowView {
@@ -35,57 +36,57 @@ export const SCENES: readonly Scene[] = [
     id: 'retrieve',
     startBeat: 4,
     bpm: 60,
-    view: { x0: -17.5, x1: -4, y0: -2, y1: 17 },
+    view: { x0: -18, x1: -5, y0: -11.5, y1: -2.5 },
     step: 1,
     title: '候補取得',
-    caption: 'フォロー内とフォロー外から、投稿を集める。',
+    caption: 'フォロー内とフォロー外から、1 個ずつ集める。',
     showBubble: false,
   },
   {
     id: 'filter',
     startBeat: 12,
     bpm: 60,
-    view: { x0: -14, x1: -3, y0: -4.5, y1: 13.5 },
+    view: { x0: -15, x1: -3, y0: -13, y1: -5 },
     step: 2,
     title: 'フィルタ',
-    caption: 'スパムと古い投稿は、ここで弾かれる。',
+    caption: '1 個ずつ検査する。スパムと古い投稿は × が付いて落ちる。',
     showBubble: false,
   },
   {
     id: 'score',
     startBeat: 24,
     bpm: 60,
-    view: { x0: -5, x1: 5, y0: -3.5, y1: 11 },
+    view: { x0: -4.5, x1: 5.5, y0: -12, y1: -4.5 },
     step: 3,
     title: 'スコアリング',
-    caption: '反応されそうな投稿ほど、高い音へ。',
+    caption: '反応されそうな投稿ほど、大きく、高い音になる。',
     showBubble: false,
   },
   {
     id: 'diversity',
     startBeat: 36,
     bpm: 60,
-    view: { x0: 3.5, x1: 12.5, y0: -3, y1: 8 },
+    view: { x0: 3, x1: 14.5, y0: -12, y1: -5 },
     step: 4,
     title: '多様性調整',
-    caption: '同じ人の投稿と、フォロー外の投稿は小さくなる。',
+    caption: '同じ人の投稿と、フォロー外の投稿は、しぼられて小さくなる。',
     showBubble: false,
   },
   {
     id: 'select',
-    startBeat: 44,
+    startBeat: 47,
     bpm: 60,
-    view: { x0: 10, x1: 19.5, y0: -3.5, y1: 10 },
+    view: { x0: 13, x1: 27, y0: -13, y1: -5 },
     step: 5,
     title: '選抜',
-    caption: '上位 3 件だけが、ベルを鳴らして進む。',
+    caption: '扉が開いたら落選。上位 3 件だけがベルを鳴らす。',
     showBubble: false,
   },
   {
     id: 'feed',
-    startBeat: 56,
+    startBeat: 58,
     bpm: 60,
-    view: { x0: 15, x1: 29, y0: -1.5, y1: 14.5 },
+    view: { x0: 15, x1: 31, y0: -11, y1: 15 },
     step: 6,
     title: 'フィード',
     caption: '届いた投稿に反応すると、次のおすすめが変わる。',
@@ -97,7 +98,7 @@ export const SCENES: readonly Scene[] = [
     bpm: 110,
     view: null,
     step: null,
-    title: '全部つなげると、曲になる。',
+    title: 'これを速く回すと、曲になる。',
     caption: '最初は、みんな同じ白。',
     showBubble: false,
   },
@@ -138,13 +139,12 @@ export const LEARN_START_BEAT = 64; // これより前は興味を動かさな�
 export const SHOW_SEED = 3; // 発表用の世界の乱数シード（毎回同じ展開にする）
 export const STEP_COUNT = 6; // 紹介する工程の数
 export const TOUR_END_BEAT = 64; // 工程の紹介が終わる拍（ensemble の startBeat と同じ）
-export const TOUR_REQUEST_EVERY = 4; // 紹介中は何拍に 1 回フィード要求するか
 
 // ビート beat（整数。stepBeat がこれから処理する拍）でフィード要求をするか。
-// 紹介中は (beat - 1) % TOUR_REQUEST_EVERY === 0 の拍だけ。TOUR_END_BEAT 以降は毎拍。
+// 紹介中は TOUR_SPAWN_BEAT の拍（ベルトに流す 1 回分）だけ。TOUR_END_BEAT 以降は毎拍。
 export function requestAt(beat: number): boolean {
   if (beat >= TOUR_END_BEAT) return true;
-  return (beat - 1) % TOUR_REQUEST_EVERY === 0;
+  return beat === TOUR_SPAWN_BEAT;
 }
 
 // beat にいる場面の SCENES の添字。範囲外は端に丸める（負は 0、終了後は最後）。

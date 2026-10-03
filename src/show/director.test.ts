@@ -12,6 +12,7 @@ import {
   sceneIndexAt,
   showSeconds,
 } from './director';
+import { TOUR_SPAWN_BEAT } from './tour';
 
 describe('SCENES', () => {
   it('startBeat の昇順で、最初が 0、最後が SHOW_END_BEAT より前', () => {
@@ -71,10 +72,11 @@ describe('learningRateAt', () => {
 });
 
 describe('requestAt', () => {
-  it('工程の紹介中は 4 拍に 1 回だけフィード要求する', () => {
-    expect(requestAt(1)).toBe(true);
-    expect(requestAt(5)).toBe(true);
-    expect(requestAt(2)).toBe(false);
+  it('工程の紹介中は TOUR_SPAWN_BEAT の拍だけフィード要求する', () => {
+    expect(requestAt(TOUR_SPAWN_BEAT)).toBe(true);
+    expect(requestAt(1)).toBe(false);
+    expect(requestAt(TOUR_SPAWN_BEAT - 1)).toBe(false);
+    expect(requestAt(TOUR_SPAWN_BEAT + 1)).toBe(false);
     expect(requestAt(63)).toBe(false);
   });
 

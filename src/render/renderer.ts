@@ -7,9 +7,20 @@ import type { BeatEvents, Reactions, World } from '../sim/types';
 import { timeline } from '../show/score';
 import { createAgentMotion } from './agentMotion';
 import { interestTint } from './agentLook';
-import { ANTICIP, buildAgent, buildStage, INK, PAPER, REST } from './instruments';
+import {
+  ANTICIP,
+  buildAgent,
+  buildStage,
+  buildTourLine,
+  INK,
+  PAPER,
+  REST,
+  TOUR_JAW_W,
+} from './instruments';
+import { TOUR_X_DIVERSITY, TOUR_X_REJECT, TOUR_X_SCRAP } from '../show/tour';
 import {
   AGENT_R,
+  BIN_SIZE,
   clamp01,
   DISTRICT_CENTER,
   DISTRICT_DISC_R,
@@ -17,10 +28,12 @@ import {
   hash01,
   PIPE_IN_MOUTH,
   PIPE_OUT_MOUTH,
+  TOUR_BIN_TOP_Y,
   VIEW_RECT,
   type P3,
 } from './stageLayout';
 import { ballState, TAIL_DT, TAIL_STEPS, type BallState } from './trajectory';
+import { tourMachines } from './tourMotion';
 import './stage.css';
 
 export interface Renderer {
@@ -36,6 +49,8 @@ export interface Renderer {
   // 画面に収める範囲を変える（発表の進行でカメラを楽器に寄せる）。null で全体に戻す。
   // 切り替えは滑らかに動く。
   setView(rect: ViewRect | null): void;
+  // 工程の紹介（下の階のベルトコンベア）を表示するか。reset では変わらない。
+  setTour(on: boolean): void;
 }
 
 export interface ViewRect {
@@ -107,6 +122,7 @@ const noopRenderer: Renderer = {
   hitTestAgent: () => null,
   setSelectedAgent() {},
   setView() {},
+  setTour() {},
 };
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer {
@@ -142,6 +158,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
 
   const stage = buildStage();
   scene.add(stage.group);
+
+  // 工程の紹介のベルトコンベア（下の階）。紹介の場面だけ表示する
+  const tourLine = buildTourLine();
+  tourLine.group.visible = false;
+  scene.add(tourLine.group);
+  let tourOn = false;
 
   // ボールと尾は 2 つの InstancedMesh で描く（塗りつぶした円と、フォロー外用の輪）
   const ballCap = BALL_CAP * (1 + TAIL_STEPS);
@@ -243,6 +265,23 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   addLabel('選抜', () => ({ x: 14.4, y: -1.0, z: 0 }));
   const scrapLabel = addLabel('除外 0', () => ({ x: -5.2, y: -1.0, z: 0 }), 'count');
   const rejectLabel = addLabel('落選 0', () => ({ x: 11.0, y: -1.0, z: 0 }), 'count');
+  // 工程の紹介の下の階の箱の下に出す個数ラベル（紹介の場面だけ表示）
+  const tourScrapLabel = addLabel(
+    '除外 0',
+    () =>
+      tourOn
+        ? { x: TOUR_X_SCRAP, y: TOUR_BIN_TOP_Y - BIN_SIZE.h - 0.5, z: 0 }
+        : null,
+    'count',
+  );
+  const tourRejectLabel = addLabel(
+    '落選 0',
+    () =>
+      tourOn
+        ? { x: TOUR_X_REJECT, y: TOUR_BIN_TOP_Y - BIN_SIZE.h - 0.5, z: 0 }
+        : null,
+    'count',
+  );
   TOPICS.forEach((t, i) => {
     // 街の中心から見て外向きに、地区の円の縁から 0.6 離す
     const el = addLabel(
@@ -482,7 +521,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
           );
         }
       }
-      for (let k = 1; k <= TAIL_STEPS && nf + nh < ballCap; k++) {
+      // 尾は少し前の時刻に評価した位置に、だんだん小さく薄くする。紹介のボールは尾を描かない
+      for (let k = 1; !c.tour && k <= TAIL_STEPS && nf + nh < ballCap; k++) {
         const ts = ballState(c, beat - k * TAIL_DT, ap);
         if (!ts.visible) break;
         put(ts, 1 - k / (TAIL_STEPS + 2));
@@ -653,6 +693,36 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     camera.updateProjectionMatrix();
   }
 
+  // 工程の紹介のベルトコンベアの機械を、ボールの時刻に合わせて動かす。
+  // tourLine が隠れている間は何もしない。
+  function applyTourMachines(world: World, beat: number): void {
+    if (!tourOn) return;
+    const tm = tourMachines(world.candidates, beat);
+    // プレス: 当たった瞬間にボールの上端まで降りる。除外のボールに当たるとヘッドが黒くなる
+    tourLine.press.group.position.y = tourLine.press.restY - tourLine.press.travel * tm.press;
+    tourLine.press.headMat.color.copy(PAPER_C).lerp(INK_C, tm.pressInk);
+    // 扉: ボールが着いた瞬間に開ききってから閉じていく
+    tourLine.scrapDoor.hinge.rotation.z = -1.35 * tm.scrapDoor;
+    tourLine.rejectDoor.hinge.rotation.z = -1.35 * tm.rejectDoor;
+    // 計器: 下からスコアの高さまで伸びる。色は計っているボールの話題の色
+    tourLine.gauge.fill.scale.y = Math.max(tm.gauge, 0.001);
+    tourLine.gauge.fillMat.color.copy(
+      tm.gaugeTopic === null ? PAPER_C : TOPIC_COLORS[tm.gaugeTopic],
+    );
+    // しぼり機: 左右の板がボールの半径まで閉じる
+    tourLine.jaws.left.position.x = TOUR_X_DIVERSITY - tm.jawGap - TOUR_JAW_W / 2;
+    tourLine.jaws.right.position.x = TOUR_X_DIVERSITY + tm.jawGap + TOUR_JAW_W / 2;
+    // ベル: 鳴った瞬間に話題の色で膨らむ
+    tourLine.bell.mesh.scale.setScalar(1 + 0.2 * tm.bell);
+    tourLine.bell.mat.color.copy(PAPER_C);
+    if (tm.bellTopic !== null) {
+      tourLine.bell.mat.color.lerp(TOPIC_COLORS[tm.bellTopic], tm.bell);
+    }
+    // パイプ: ボールが出た反動で少し左へ
+    tourLine.pipes[0].group.position.x = -0.3 * tm.pipeIn;
+    tourLine.pipes[1].group.position.x = -0.3 * tm.pipeOut;
+  }
+
   // 拍に合わせた背景の脈動。一時停止中は beat が進まないので止まる。
   function applyBeatPulse(beat: number): void {
     const frac = beat - Math.floor(beat);
@@ -674,6 +744,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       rejectCount = 0;
       scrapLabel.textContent = '除外 0';
       rejectLabel.textContent = '落選 0';
+      tourScrapLabel.textContent = '除外 0';
+      tourRejectLabel.textContent = '落選 0';
     },
     onBeat(_world, events) {
       // 箱に落ちたボールを数えてラベルを更新する（dropStage 1 が除外、4 が落選）
@@ -684,6 +756,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (events.dropped.length > 0) {
         scrapLabel.textContent = `除外 ${scrapCount}`;
         rejectLabel.textContent = `落選 ${rejectCount}`;
+        tourScrapLabel.textContent = `除外 ${scrapCount}`;
+        tourRejectLabel.textContent = `落選 ${rejectCount}`;
       }
       for (const d of events.delivered) {
         // 届いた拍の stepBeat 時点ではなく、その候補の catch の時刻（拍の途中）に発火する
@@ -714,6 +788,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       stepView(dt);
       applyPulses(world, beat);
       applyBeatPulse(beat);
+      applyTourMachines(world, beat);
       drawBalls(world, beat);
       drawSparks(dt);
       drawAgents(world);
@@ -750,6 +825,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
             h: rect.y1 - rect.y0,
           }
         : { ...FULL_VIEW };
+    },
+    setTour(on) {
+      tourOn = on;
+      tourLine.group.visible = on;
     },
   };
 }

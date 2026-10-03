@@ -94,6 +94,22 @@ export function districtPos(i: number, n: number): P3 {
 // 画面に必ず収める範囲。OrthographicCamera がこの矩形を contain する。
 export const VIEW_RECT = { x0: -17.5, x1: 28.5, y0: -4.5, y1: 16 };
 
+// --- ボールの演出の定数。trajectory.ts（合奏）と tourMotion.ts（工程の紹介）の両方が使う ---
+export const HOP_HEIGHT = 3.0; // 1 拍の区間で跳ねたときの最高到達点
+export const BALL_R = 0.34; // 基準の半径
+export const VANISH_CATCH = 0.25; // 受け止められて縮んで消えるまでのビート数
+export const VANISH_BIN = 0.3; // 箱に落ちて消えるまでのビート数
+export const SIZE_BLEND = 0.15; // 大きさが切り替わるまでのビート数
+export const SQUASH_BEATS = 0.12; // 当たった直後に伸び縮みするビート数
+export const DROPPED_COLOR = '#b8b8b8'; // 除外・落選したあとの色（色は話題だけに使う）
+
+// --- 工程の紹介のベルトコンベア（下の階）。x 座標は時刻の計算にも使うので show/tour.ts に置く ---
+export const TOUR_BELT_Y = -9; // ベルトの上面
+export const TOUR_PIPE_IN_MOUTH = p3(-16.2, -4, 0);
+export const TOUR_PIPE_OUT_MOUTH = p3(-16.2, -6, 0);
+export const TOUR_BIN_TOP_Y = -11; // 除外箱・落選箱の口の高さ（箱の底は -12.2）
+export const TOUR_DOOR_W = 1.4; // 扉の幅（ベルトの切れ目の幅）
+
 // 同じスロットで発射されるフォロー内・フォロー外の 2 個が打点で重ならないよう、
 // source で進行方向（x）にずらす量。
 const LANE_OFF = 0.3;
