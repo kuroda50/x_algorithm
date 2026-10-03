@@ -32,7 +32,7 @@ describe('SCENES', () => {
 describe('sceneAt / sceneIndexAt', () => {
   it('場面の途中ではその場面を返す', () => {
     expect(sceneAt(0).id).toBe('intro');
-    expect(sceneAt(7.9).id).toBe('intro');
+    expect(sceneAt(3.9).id).toBe('intro');
   });
 
   it('境界の拍ちょうどで次の場面を返す', () => {
@@ -63,7 +63,7 @@ describe('bpmAt', () => {
 
 describe('learningRateAt', () => {
   it('LEARN_START_BEAT より前は 0、以降は normal', () => {
-    expect(learningRateAt(95.9, 0.16)).toBe(0);
+    expect(learningRateAt(63.9, 0.16)).toBe(0);
     expect(learningRateAt(LEARN_START_BEAT - 0.1, 0.16)).toBe(0);
     expect(learningRateAt(LEARN_START_BEAT, 0.16)).toBe(0.16);
     expect(learningRateAt(0, 0.16)).toBe(0);
@@ -75,7 +75,7 @@ describe('requestAt', () => {
     expect(requestAt(1)).toBe(true);
     expect(requestAt(5)).toBe(true);
     expect(requestAt(2)).toBe(false);
-    expect(requestAt(95)).toBe(false);
+    expect(requestAt(63)).toBe(false);
   });
 
   it('TOUR_END_BEAT 以降は毎拍要求する', () => {

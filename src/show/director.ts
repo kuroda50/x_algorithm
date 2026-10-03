@@ -24,7 +24,7 @@ export const SCENES: readonly Scene[] = [
   {
     id: 'intro',
     startBeat: 0,
-    bpm: 110,
+    bpm: 60,
     view: null,
     step: null,
     title: 'おすすめは、どう決まる？',
@@ -33,8 +33,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'retrieve',
-    startBeat: 8,
-    bpm: 110,
+    startBeat: 4,
+    bpm: 60,
     view: { x0: -17.5, x1: -4, y0: -2, y1: 17 },
     step: 1,
     title: '候補取得',
@@ -43,8 +43,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'filter',
-    startBeat: 24,
-    bpm: 110,
+    startBeat: 12,
+    bpm: 60,
     view: { x0: -14, x1: -3, y0: -4.5, y1: 13.5 },
     step: 2,
     title: 'フィルタ',
@@ -53,8 +53,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'score',
-    startBeat: 40,
-    bpm: 110,
+    startBeat: 24,
+    bpm: 60,
     view: { x0: -5, x1: 5, y0: -3.5, y1: 11 },
     step: 3,
     title: 'スコアリング',
@@ -63,8 +63,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'diversity',
-    startBeat: 56,
-    bpm: 110,
+    startBeat: 36,
+    bpm: 60,
     view: { x0: 3.5, x1: 12.5, y0: -3, y1: 8 },
     step: 4,
     title: '多様性調整',
@@ -73,8 +73,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'select',
-    startBeat: 68,
-    bpm: 110,
+    startBeat: 44,
+    bpm: 60,
     view: { x0: 10, x1: 19.5, y0: -3.5, y1: 10 },
     step: 5,
     title: '選抜',
@@ -83,8 +83,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'feed',
-    startBeat: 80,
-    bpm: 110,
+    startBeat: 56,
+    bpm: 60,
     view: { x0: 15, x1: 29, y0: -1.5, y1: 14.5 },
     step: 6,
     title: 'フィード',
@@ -93,8 +93,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'ensemble',
-    startBeat: 96,
-    bpm: 120,
+    startBeat: 64,
+    bpm: 110,
     view: null,
     step: null,
     title: '全部つなげると、曲になる。',
@@ -103,8 +103,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'drift',
-    startBeat: 160,
-    bpm: 132,
+    startBeat: 112,
+    bpm: 126,
     view: null,
     step: null,
     title: '反応するたびに、色がつく。',
@@ -113,8 +113,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'bubble',
-    startBeat: 240,
-    bpm: 144,
+    startBeat: 176,
+    bpm: 140,
     view: { x0: 14, x1: 30, y0: -4, y1: 15 },
     step: null,
     title: '同じ曲なのに、見ているものは違う。',
@@ -123,8 +123,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'finale',
-    startBeat: 328,
-    bpm: 152,
+    startBeat: 248,
+    bpm: 150,
     view: null,
     step: null,
     title: 'これが、フィルターバブル。',
@@ -133,11 +133,11 @@ export const SCENES: readonly Scene[] = [
   },
 ];
 
-export const SHOW_END_BEAT = 360; // この拍で発表を終えて締めの画面へ
-export const LEARN_START_BEAT = 96; // これより前は興味を動かさない（全員が白いまま）
+export const SHOW_END_BEAT = 280; // この拍で発表を終えて締めの画面へ
+export const LEARN_START_BEAT = 64; // これより前は興味を動かさない（全員が白いまま）
 export const SHOW_SEED = 3; // 発表用の世界の乱数シード（毎回同じ展開にする）
 export const STEP_COUNT = 6; // 紹介する工程の数
-export const TOUR_END_BEAT = 96; // 工程の紹介が終わる拍（ensemble の startBeat と同じ）
+export const TOUR_END_BEAT = 64; // 工程の紹介が終わる拍（ensemble の startBeat と同じ）
 export const TOUR_REQUEST_EVERY = 4; // 紹介中は何拍に 1 回フィード要求するか
 
 // ビート beat（整数。stepBeat がこれから処理する拍）でフィード要求をするか。
