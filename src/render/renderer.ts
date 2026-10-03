@@ -7,7 +7,7 @@ import type { BeatEvents, Reactions, World } from '../sim/types';
 import { timeline } from '../show/score';
 import { createAgentMotion } from './agentMotion';
 import { interestTint } from './agentLook';
-import { buildAgent, buildStage, REST, WHITE } from './instruments';
+import { ANTICIP, buildAgent, buildStage, INK, PAPER, REST } from './instruments';
 import {
   AGENT_R,
   clamp01,
@@ -66,10 +66,13 @@ const VIEW_H = VIEW_RECT.y1 - VIEW_RECT.y0;
 const VIEW_CX = (VIEW_RECT.x0 + VIEW_RECT.x1) / 2;
 const VIEW_CY = (VIEW_RECT.y0 + VIEW_RECT.y1) / 2;
 
-const BG0 = new THREE.Color('#06070b');
-const BG1 = new THREE.Color('#0d0f16');
+const BG0 = new THREE.Color('#ffffff');
+const BG1 = new THREE.Color('#f4f4f4');
 const REST_C = new THREE.Color(REST);
-const WHITE_C = new THREE.Color(WHITE);
+const PAPER_C = new THREE.Color(PAPER);
+const INK_C = new THREE.Color(INK);
+const ANTICIP_C = new THREE.Color(ANTICIP);
+const DIM_LINE_C = new THREE.Color('#cfcfcf'); // dim 時のエージェントの輪郭
 const TOPIC_COLORS = TOPICS.map((t) => new THREE.Color(t.color));
 
 interface PendingDelivery {
@@ -187,10 +190,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     scene.add(a.group);
     agents.push(a);
   }
-  // 選択中のエージェントを囲む白い輪
+  // 選択中のエージェントを囲む黒い輪
   const selRing = new THREE.Mesh(
     new THREE.RingGeometry(0.92, 1.0, 48),
-    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    new THREE.MeshBasicMaterial({ color: INK }),
   );
   selRing.visible = false;
   scene.add(selRing);
@@ -202,7 +205,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const agentLabels: HTMLElement[] = [];
   let selectedId: number | null = null;
   let timeSec = 0;
-  const pulseMap = new Map<string, number>();
+  // キー（kind:index）ごとの、当たりの強さとそれを出したボールの話題の色
+  const pulseMap = new Map<string, { p: number; color: THREE.Color }>();
   const anticipMap = new Map<string, number>();
 
   // --- ラベル ---
@@ -287,7 +291,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   // ボールの終点とラベル・ヒットテストが使う。
   function agentPos(i: number): P3 {
     const s = motion.pos(i);
-    const p = pulseMap.get(`catch:${i}`) ?? 0;
+    const p = pulseMap.get(`catch:${i}`)?.p ?? 0;
     if (!s) return { x: DISTRICT_CENTER.x, y: DISTRICT_CENTER.y, z: 0 };
     return { x: s.x, y: s.y + s.hop - p * 0.18, z: 0 };
   }
@@ -364,10 +368,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     const s = toLabelPos(p);
     if (s) {
       let slot = 0;
-      if (d.reactions.like) spawnReactIcon('like', '♥', s, slot++, '#ffffff');
-      if (d.reactions.reply) spawnReactIcon('reply', '…', s, slot++, '#ffffff');
-      if (d.reactions.repost) spawnReactIcon('repost', '↻', s, slot++, '#ffffff');
-      if (d.followed) spawnReactIcon('follow', '+フォロー', s, slot++, '#9aa0b0');
+      if (d.reactions.like) spawnReactIcon('like', '♥', s, slot++, '#111111');
+      if (d.reactions.reply) spawnReactIcon('reply', '…', s, slot++, '#111111');
+      if (d.reactions.repost) spawnReactIcon('repost', '↻', s, slot++, '#111111');
+      if (d.followed) spawnReactIcon('follow', '+フォロー', s, slot++, '#777777');
     }
   }
 
@@ -419,10 +423,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function drawBalls(world: World, beat: number): void {
     let nf = 0; // 塗りつぶし
     let nh = 0; // 輪（フォロー外）
-    let bright = 1;
+    let pale = 1;
     const put = (s: BallState, tailFade: number) => {
       const r = s.radius * tailFade;
-      tmpC.set(s.color).multiplyScalar(bright * tailFade * tailFade * Math.max(0, s.opacity));
+      // 白い背景では薄くなるほど紙の白へ近づける
+      const f = clamp01(pale * tailFade * tailFade * Math.max(0, s.opacity));
+      tmpC.set(s.color).lerp(PAPER_C, 1 - f);
       const mesh = s.hollow ? ballRingMesh : ballMesh;
       const i = s.hollow ? nh++ : nf++;
       setInstance(
@@ -439,7 +445,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const ap = agentPos(c.agentId);
       const st = ballState(c, beat, ap);
       if (!st.visible) continue;
-      bright = selectedId !== null && c.agentId !== selectedId ? 0.35 : 1;
+      pale = selectedId !== null && c.agentId !== selectedId ? 0.3 : 1;
       // 頭と尾。尾は少し前の時刻に評価した位置に、だんだん小さく薄くする
       put(st, 1);
       for (let k = 1; k <= TAIL_STEPS && nf + nh < ballCap; k++) {
@@ -473,7 +479,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       if (n >= SPARK_CAP) break;
       const f = 1 - s.age / s.ttl;
       const r = 0.07 * (0.4 + 0.6 * f);
-      tmpC.copy(s.color).multiplyScalar(f);
+      tmpC.copy(s.color).lerp(PAPER_C, 1 - f);
       setInstance(sparkMesh, n++, { x: s.x, y: s.y, z: Z_SPARK }, r, r, tmpC);
     }
     sparkMesh.count = n;
@@ -496,18 +502,20 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       a.group.visible = true;
       a.group.position.set(p.x, p.y, Z_AGENT);
       a.group.scale.setScalar((dim ? 0.75 : 1) * (1 + s.pop * 0.25));
-      // 円の色は興味の偏りで染まる（最初は全員白）
+      // 円の色は興味の偏りで染まる（最初は全員白）。選択でないものは白へ寄せる
       const tint = interestTint(world.agents[i].interest);
       a.mat.color
-        .copy(WHITE_C)
+        .copy(PAPER_C)
         .lerp(TOPIC_COLORS[tint.topic], tint.amount)
-        .multiplyScalar(dim ? 0.35 : 1);
-      // フィードの話題構成を円のまわりの粒で示す（足りない分は暗い粒）
+        .lerp(PAPER_C, dim ? 0.7 : 0);
+      const outline = a.group.userData.outlineMat as THREE.MeshBasicMaterial | undefined;
+      if (outline) outline.color.copy(dim ? DIM_LINE_C : INK_C);
+      // フィードの話題構成を円のまわりの粒で示す（足りない分は空の粒）
       const feed = world.agents[i].feed;
       for (let k = 0; k < FEED_KEEP && d < DOT_CAP; k++, d++) {
         const ang = (k / FEED_KEEP) * Math.PI * 2 - Math.PI / 2;
         const item = feed[k];
-        tmpC.set(item ? TOPICS[item.topic].color : '#232936').multiplyScalar(dim ? 0.3 : 1);
+        tmpC.set(item ? TOPICS[item.topic].color : '#e2e2e2').lerp(PAPER_C, dim ? 0.7 : 0);
         setInstance(
           dotMesh,
           d,
@@ -536,7 +544,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   }
 
   // 当たった瞬間の発光と動き。楽器ごとの「最後に当たってからの拍数」から決める。
-  // 当たる直前の ANTICIP_BEATS 拍のあいだは予告として少し明るくする。
+  // 当たる直前の ANTICIP_BEATS 拍のあいだは予告として少し色を置く。
   function applyPulses(world: World, beat: number): void {
     pulseMap.clear();
     anticipMap.clear();
@@ -546,49 +554,59 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         const key = `${h.kind}:${h.index}`;
         if (age >= 0 && age <= PULSE_BEATS) {
           const p = 1 - age / PULSE_BEATS;
-          if (p > (pulseMap.get(key) ?? 0)) pulseMap.set(key, p);
+          // 一番強い pulse を出したボールの話題の色を覚える
+          if (p > (pulseMap.get(key)?.p ?? 0))
+            pulseMap.set(key, { p, color: TOPIC_COLORS[c.topic] });
         } else if (age >= -ANTICIP_BEATS && age < 0 && ANTICIP_KINDS.has(h.kind)) {
           const a = 1 + age / ANTICIP_BEATS;
           if (a > (anticipMap.get(key) ?? 0)) anticipMap.set(key, a);
         }
       }
     }
-    const pulse = (kind: string, i = 0) => pulseMap.get(`${kind}:${i}`) ?? 0;
+    const entry = (kind: string, i = 0) => pulseMap.get(`${kind}:${i}`);
+    const pulse = (kind: string, i = 0) => entry(kind, i)?.p ?? 0;
     const anticip = (kind: string, i = 0) => anticipMap.get(`${kind}:${i}`) ?? 0;
-    const glow = (mat: THREE.MeshBasicMaterial, kind: string, i = 0) => {
-      mat.color.copy(REST_C).lerp(WHITE_C, clamp01(0.35 * anticip(kind, i) + pulse(kind, i)));
+    // 塗りを持つ部品: 予告は薄い灰、当たった瞬間はそのボールの話題の色で塗る
+    const glowFill = (mat: THREE.MeshBasicMaterial, kind: string, i = 0) => {
+      mat.color.copy(PAPER_C).lerp(ANTICIP_C, 0.9 * anticip(kind, i));
+      const e = entry(kind, i);
+      if (e) mat.color.lerp(e.color, e.p);
+    };
+    // 線だけの部品: 灰色から黒へ
+    const glowLine = (mat: THREE.MeshBasicMaterial, kind: string, i = 0) => {
+      mat.color.copy(REST_C).lerp(INK_C, clamp01(0.35 * anticip(kind, i) + pulse(kind, i)));
     };
 
     stage.drums.forEach((d, i) => {
       const p = pulse('drum', i);
-      glow(d.mat, 'drum', i);
+      glowFill(d.mat, 'drum', i);
       d.group.scale.setScalar(1 + (d.kick ? 0.18 : 0.08) * p);
     });
     stage.vibeBars.forEach((b, i) => {
       const p = pulse('vibe', i);
-      glow(b.mat, 'vibe', i);
+      glowFill(b.mat, 'vibe', i);
       b.mesh.position.y = b.restY - 0.07 * p;
     });
     stage.bassStrings.forEach((s, i) => {
       const p = pulse('bass', i);
-      glow(s.mat, 'bass', i);
+      glowLine(s.mat, 'bass', i);
       s.mesh.position.y = s.restY + Math.sin(timeSec * 55 + i * 2.1) * 0.09 * p;
     });
     stage.bells.forEach((b, i) => {
       const p = pulse('bell', i);
-      glow(b.mat, 'bell', i);
+      glowFill(b.mat, 'bell', i);
       b.mesh.scale.setScalar(1 + 0.2 * p);
     });
-    glow(stage.cymbalBar.mat, 'cymbal');
+    glowLine(stage.cymbalBar.mat, 'cymbal');
     stage.cymbalBar.mesh.rotation.z =
       stage.cymbalBar.baseRot + Math.sin(timeSec * 26) * 0.4 * pulse('cymbal');
-    glow(stage.trapBar.mat, 'trap');
+    glowLine(stage.trapBar.mat, 'trap');
     stage.scrapBin.position.y = -0.09 * pulse('scrap');
     stage.rejectBin.position.y = -0.09 * pulse('reject');
     stage.pipes.forEach((pipe, i) => {
       const p = pulse('launch', i);
       pipe.group.position.x = -0.3 * p;
-      pipe.ringMat.color.copy(REST_C).lerp(WHITE_C, p);
+      glowFill(pipe.ringMat, 'launch', i);
     });
     // キックの拍でわずかにズーム
     camera.zoom = 1 + 0.015 * pulse('drum', 0);

@@ -1,0 +1,383 @@
+/* 発表モードの画面。白い紙に黒い細い線の線画。
+   色がつくのは話題の 5 色だけ（インラインの --c で渡す）。 */
+
+#show-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  font-family: "M PLUS 1p", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color: #111111;
+}
+
+#show-root [hidden] {
+  display: none !important;
+}
+
+/* ボタン: 白い背景に黒い 2px の枠の横長の矩形。hover で白黒反転 */
+.show-btn {
+  appearance: none;
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  color: #111111;
+  background: #ffffff;
+  border: 2px solid #111111;
+  border-radius: 0;
+  padding: 10px 30px;
+  cursor: pointer;
+}
+
+.show-btn:hover {
+  background: #111111;
+  color: #ffffff;
+}
+
+.show-btn.big {
+  font-size: 19px;
+  padding: 14px 44px;
+}
+
+/* --- タイトル画面 --- */
+
+.show-title {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 2.4vh, 26px);
+  pointer-events: auto;
+  --tile: clamp(44px, 7.2vw, 108px);
+}
+
+.show-title-brand {
+  font-weight: 800;
+  font-size: clamp(14px, 1.8vw, 22px);
+  letter-spacing: 0.35em;
+  text-indent: 0.35em; /* 字間で右に寄るぶんを戻す */
+}
+
+/* ロゴの上を左から右へ渡る 5 色のボール */
+.show-balls {
+  position: relative;
+  width: min(74vw, calc(var(--tile) * 9));
+  height: calc(var(--tile) * 0.7);
+  overflow: hidden;
+}
+
+.show-ball {
+  position: absolute;
+  bottom: 0;
+  left: -6%;
+  width: calc(var(--tile) * 0.28);
+  animation: showBallGo 4.4s linear infinite;
+  animation-fill-mode: backwards;
+}
+
+.show-ball-in {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--c);
+  animation: showBallHop 0.62s ease-in-out infinite;
+}
+
+@keyframes showBallGo {
+  from {
+    left: -6%;
+  }
+  to {
+    left: 102%;
+  }
+}
+
+@keyframes showBallHop {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: ease-out;
+  }
+  50% {
+    transform: translateY(calc(var(--tile) * -0.34));
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+/* 「ビートオーケストラ」のタイルロゴ */
+.show-logo {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--tile) * 0.07);
+}
+
+.show-tile {
+  width: var(--tile);
+  height: var(--tile);
+  display: grid;
+  place-items: center;
+  background: #ffffff;
+  border: 2px solid #111111;
+  font-weight: 800;
+  font-size: calc(var(--tile) * 0.52);
+  line-height: 1;
+  transform: translateY(calc(var(--tile) * var(--dyf))) rotate(var(--rot));
+  animation: showTileDrop 0.6s cubic-bezier(0.25, 0.8, 0.35, 1) backwards;
+}
+
+/* 上から落ちてきて弾んで止まる（--dyf は落ち着き位置のずらし） */
+@keyframes showTileDrop {
+  0% {
+    transform: translateY(calc(var(--tile) * var(--dyf) - 120vh)) rotate(var(--rot));
+    animation-timing-function: ease-in;
+  }
+  55% {
+    transform: translateY(calc(var(--tile) * (var(--dyf) + 0.12))) rotate(var(--rot));
+    animation-timing-function: ease-out;
+  }
+  75% {
+    transform: translateY(calc(var(--tile) * (var(--dyf) - 0.03))) rotate(var(--rot));
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: translateY(calc(var(--tile) * var(--dyf))) rotate(var(--rot));
+  }
+}
+
+.show-title-sub {
+  font-size: clamp(15px, 2vw, 22px);
+}
+
+.show-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: clamp(6px, 2vh, 18px);
+}
+
+.show-title-hint {
+  position: absolute;
+  right: 2.5vw;
+  bottom: 3vh;
+  font-size: 12px;
+  color: #6f6f6f;
+  letter-spacing: 0.05em;
+}
+
+/* --- 場面転換（上下から閉じる黒い板） --- */
+
+.show-shutter {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.show-shutter-half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50.5%;
+  background: #111111;
+  transition: transform 0.4s cubic-bezier(0.7, 0, 0.3, 1);
+}
+
+.show-shutter-half.top {
+  top: 0;
+  transform: translateY(-102%);
+}
+
+.show-shutter-half.bottom {
+  bottom: 0;
+  transform: translateY(102%);
+}
+
+.show-shutter.closed .show-shutter-half {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .show-shutter-half {
+    transition: opacity 0.4s linear;
+  }
+
+  .show-shutter-half.top,
+  .show-shutter-half.bottom {
+    transform: none;
+    opacity: 0;
+  }
+
+  .show-shutter.closed .show-shutter-half {
+    opacity: 1;
+  }
+}
+
+/* --- 字幕（左下） --- */
+
+.show-caption {
+  position: absolute;
+  left: 4vw;
+  bottom: 5vh;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 84vw;
+  pointer-events: none;
+}
+
+.show-caption > * {
+  animation: showCapIn 0.35s ease-out backwards;
+}
+
+@keyframes showCapIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+.show-step-badge {
+  display: inline-block;
+  border: 1.5px solid #111111;
+  background: #ffffff;
+  padding: 2px 10px;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.show-cap-title {
+  display: inline;
+  font-size: clamp(30px, 4.6vw, 72px);
+  font-weight: 800;
+  line-height: 1.15;
+  background: #ffffff;
+  padding: 0.05em 0.25em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.show-cap-sub {
+  display: inline;
+  font-size: clamp(16px, 1.9vw, 28px);
+  color: #6f6f6f;
+  background: #ffffff;
+  padding: 0.05em 0.25em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* --- 上中央: 工程の進み具合 + 一時停止の表示 --- */
+
+.show-top {
+  position: absolute;
+  top: 3vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.show-steps {
+  display: flex;
+  gap: 7px;
+}
+
+.show-step {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #111111;
+  background: #ffffff;
+}
+
+.show-step.on {
+  background: #111111;
+}
+
+.show-pause-badge {
+  font-size: 12px;
+  color: #6f6f6f;
+  background: #ffffff;
+  padding: 1px 8px;
+}
+
+/* --- 偏り指数（右上） --- */
+
+.show-bubble {
+  position: absolute;
+  bottom: 5vh;
+  right: 4vw;
+  z-index: 20;
+  text-align: right;
+  pointer-events: none;
+}
+
+.show-bubble-label {
+  font-size: clamp(12px, 1.3vw, 16px);
+  font-weight: 700;
+  color: #6f6f6f;
+}
+
+.show-bubble-val {
+  font-size: clamp(40px, 6vw, 96px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+/* --- 締めの画面 --- */
+
+.show-ending {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px, 3vh, 30px);
+  pointer-events: auto;
+  --tile: clamp(28px, 3.6vw, 56px);
+}
+
+.show-end-lines {
+  text-align: center;
+}
+
+.show-end-line {
+  font-size: clamp(30px, 5vw, 80px);
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.show-end-name {
+  font-weight: 700;
+  font-size: clamp(13px, 1.5vw, 18px);
+  letter-spacing: 0.15em;
+}
+
+.show-end-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* --- 発表の進行中は通常の HUD を隠す --- */
+
+body.show-running .hud-top,
+body.show-running .dock {
+  display: none;
+}

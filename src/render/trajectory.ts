@@ -15,7 +15,7 @@ export const VANISH_BIN = 0.3; // 箱に落ちて消えるまでのビート数
 export const SIZE_BLEND = 0.15; // 大きさが切り替わるまでのビート数
 export const SQUASH_BEATS = 0.12; // 当たった直後に伸び縮みするビート数
 
-export const DROPPED_COLOR = '#6b7080'; // 除外・落選したあとの色（色は話題だけに使う）
+export const DROPPED_COLOR = '#b8b8b8'; // 除外・落選したあとの色（色は話題だけに使う）
 
 export interface BallState {
   pos: P3;

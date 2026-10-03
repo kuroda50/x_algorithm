@@ -1,10 +1,11 @@
 :root {
-  color-scheme: dark;
-  --bg: #06070b;
-  --surface: #0b0c11;
-  --text: #ececf2;
-  --text-muted: #8a90a2;
-  --border: rgba(255, 255, 255, 0.16);
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --text: #111111;
+  --text-muted: #6f6f6f;
+  --border: #111111;
+  --grid: #d9d9d9;
   --danger: #e87371;
 }
 
@@ -22,7 +23,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  font-family: "M PLUS 1p", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans JP", sans-serif;
   font-size: 14px;
   line-height: 1.5;
 }
@@ -58,12 +59,12 @@ body {
   pointer-events: auto;
 }
 
-/* パネルの共通の面（黒い面 + 細い白い線） */
+/* パネルの共通の面（白い紙 + 黒い枠線） */
 
 .panel {
-  background: rgba(11, 12, 17, 0.94);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: #ffffff;
+  border: 1.5px solid #111111;
+  border-radius: 0;
   padding: 10px 12px;
 }
 
@@ -94,9 +95,9 @@ body {
 .brand h1 {
   font-size: 12px;
   margin: 0;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.12em;
-  color: var(--text-muted);
+  color: #111111;
 }
 
 .actions {
@@ -140,21 +141,18 @@ body {
   padding: 0;
   font: inherit;
   font-size: 13px;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  color: #111111;
+  background: #ffffff;
+  border: 1.5px solid #111111;
+  border-radius: 0;
   cursor: pointer;
 }
 
-.btn:hover {
-  border-color: #ffffff;
-}
-
+.btn:hover,
 .btn[aria-pressed="true"],
 .btn[aria-expanded="true"] {
-  background: #ffffff;
-  color: #06070b;
+  background: #111111;
+  color: #ffffff;
 }
 
 .btn svg {
@@ -168,21 +166,16 @@ body {
   height: auto;
   padding: 8px 16px;
   background: #ffffff;
-  border-color: transparent;
-  color: #06070b;
-  font-weight: 600;
-}
-
-.btn-primary:hover {
-  background: #d9dce6;
-  border-color: transparent;
+  border: 1.5px solid #111111;
+  color: #111111;
+  font-weight: 700;
 }
 
 .stats {
   flex-basis: 100%;
   text-align: right;
   font-size: 11px;
-  color: #4c5160;
+  color: #9a9a9a;
   font-variant-numeric: tabular-nums;
 }
 
@@ -211,7 +204,7 @@ body {
 .row input[type="range"] {
   flex: 1;
   min-width: 0;
-  accent-color: #ffffff;
+  accent-color: #111111;
 }
 
 .row b {
@@ -241,12 +234,12 @@ body {
 .guide-table thead th {
   color: var(--text-muted);
   font-weight: 600;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 0.5px solid #d9d9d9;
   white-space: nowrap;
 }
 
 .guide-table tbody td {
-  border-top: 0.5px solid var(--border);
+  border-top: 0.5px solid #d9d9d9;
   color: var(--text-muted);
 }
 
@@ -407,7 +400,7 @@ body {
 .fp-int-track {
   flex: 1;
   height: 6px;
-  background: var(--bg);
+  background: #ededed;
   border-radius: 3px;
   overflow: hidden;
 }
@@ -450,8 +443,8 @@ body {
   height: 56px;
   box-sizing: border-box;
   padding: 5px 7px;
-  background: var(--bg);
-  border: 0.5px solid var(--border);
+  background: #ffffff;
+  border: 1px solid #111111;
   border-radius: 8px;
   transition: left 0.45s cubic-bezier(0.3, 0.9, 0.3, 1), opacity 0.3s;
   opacity: 0;
@@ -504,7 +497,7 @@ body {
   flex: none;
   font-size: 9px;
   color: var(--text-muted);
-  border: 0.5px solid var(--border);
+  border: 0.5px solid #d9d9d9;
   border-radius: 4px;
   padding: 0 3px;
   line-height: 1.4;
@@ -513,7 +506,7 @@ body {
 .tl-bw {
   height: 5px;
   margin-top: 6px;
-  background: var(--border);
+  background: #ededed;
   border-radius: 3px;
   overflow: hidden;
 }
@@ -567,7 +560,7 @@ body {
 }
 
 .fp-ov-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .fp-ov-name {
@@ -593,7 +586,7 @@ body {
   display: flex;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--bg);
+  background: #ededed;
 }
 
 .fp-ov-seg {

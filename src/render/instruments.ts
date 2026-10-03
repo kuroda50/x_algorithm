@@ -27,13 +27,16 @@ import {
   type P3,
 } from './stageLayout';
 
-// 色の定数。色がつくのは話題・ボール・火花だけで、装置はすべて白〜灰色。
-export const REST = '#8f95a6'; // 装置のふだんの色
-export const WHITE = '#ffffff'; // 当たった瞬間の色
-export const DARK = '#1a1d27'; // 支柱・鍵盤の下の柱など目立たせない部分
-export const BG = '#06070b'; // 背景
-const FLOOR_LINE = '#3a3f4d';
-const BG_RING = '#0e1017';
+// 色の定数。白い紙に黒い線の線画。色がつくのは話題・ボール・火花だけ。
+export const PAPER = '#ffffff'; // 紙の白。背景と装置の中の塗り
+export const INK = '#111111'; // 輪郭・床の線・文字の黒
+export const REST = '#9a9a9a'; // 線だけの部品（弦・バー）のふだんの色
+export const HAIR = '#d9d9d9'; // 目立たせない線（吊り線・支柱）
+export const ANTICIP = '#e6e6e6'; // 当たる直前の予告の塗り
+const PIPE_FILL = '#ededed'; // フォロー内パイプの中の塗り
+const BG_RING = '#f3f3f3';
+
+const STROKE = 0.07; // 線の太さ（ワールド単位）
 
 // 奥行き（z）は重なり順だけを決める。
 const Z_BG_RING = -2;
@@ -46,7 +49,7 @@ export interface DrumPad {
   kick: boolean;
 }
 export interface VibeBar {
-  mesh: THREE.Mesh; // 鍵盤（沈む）
+  mesh: THREE.Object3D; // 鍵盤（沈む）
   mat: THREE.MeshBasicMaterial;
   restY: number;
 }
@@ -56,7 +59,7 @@ export interface BassString {
   restY: number;
 }
 export interface Bell {
-  mesh: THREE.Mesh; // 半円（膨らむ）
+  mesh: THREE.Object3D; // 半円（膨らむ）
   mat: THREE.MeshBasicMaterial;
 }
 export interface Bar {
@@ -85,8 +88,10 @@ export interface Stage {
 const basic = (color: string): THREE.MeshBasicMaterial =>
   new THREE.MeshBasicMaterial({ color });
 
-// パルスで光らない部分の共通素材（柱・吊り線・床の線など）。
-const darkMat = basic(DARK);
+// パルスで光らない部分の共通素材（輪郭・細い支柱・吊り線など）。
+const inkMat = basic(INK);
+const hairMat = basic(HAIR);
+const paperMat = basic(PAPER);
 
 // 中心 (x,y) に置く幅 w・高さ h の矩形。
 function rect(w: number, h: number, mat: THREE.Material, x: number, y: number, z = 0) {
@@ -95,36 +100,58 @@ function rect(w: number, h: number, mat: THREE.Material, x: number, y: number, z
   return m;
 }
 
+// 輪郭の輪（INK）と内側の塗りの 2 枚で作る円。fill は当たりで色が変わる部品には専用のものを渡す。
+function strokeCircle(
+  r: number,
+  fillMat: THREE.Material,
+  outlineMat: THREE.Material = inkMat,
+): THREE.Group {
+  const g = new THREE.Group();
+  const ri = Math.max(r - STROKE, 0.01);
+  g.add(new THREE.Mesh(new THREE.CircleGeometry(ri, 40), fillMat));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(ri, r, 48), outlineMat);
+  ring.position.z = 0.01;
+  g.add(ring);
+  return g;
+}
+
+// 細い矩形 4 本の枠（INK）と内側の塗りで作る輪郭つき矩形。
+function strokeRect(w: number, h: number, fillMat: THREE.Material): THREE.Group {
+  const g = new THREE.Group();
+  const iw = Math.max(w - 2 * STROKE, 0.01);
+  const ih = Math.max(h - 2 * STROKE, 0.01);
+  g.add(rect(iw, ih, fillMat, 0, 0));
+  g.add(rect(w, STROKE, inkMat, 0, h / 2 - STROKE / 2, 0.01));
+  g.add(rect(w, STROKE, inkMat, 0, -h / 2 + STROKE / 2, 0.01));
+  g.add(rect(STROKE, ih, inkMat, -w / 2 + STROKE / 2, 0, 0.01));
+  g.add(rect(STROKE, ih, inkMat, w / 2 - STROKE / 2, 0, 0.01));
+  return g;
+}
+
 // 口の開いた箱。上の開いた「凵」の字（線 3 本）。
 function openBin(mat: THREE.Material): THREE.Group {
   const g = new THREE.Group();
-  const t = 0.1;
   const { w, h } = BIN_SIZE;
-  g.add(rect(t, h, mat, -w / 2 + t / 2, h / 2));
-  g.add(rect(t, h, mat, w / 2 - t / 2, h / 2));
-  g.add(rect(w, t, mat, 0, t / 2));
+  g.add(rect(STROKE, h, mat, -w / 2 + STROKE / 2, h / 2));
+  g.add(rect(STROKE, h, mat, w / 2 - STROKE / 2, h / 2));
+  g.add(rect(w, STROKE, mat, 0, STROKE / 2));
   return g;
 }
 
 // 左の画面外（x = -40）から口まで伸びる横のパイプ。
-// hollow は中を背景色で開けて上下の縁だけにする（フォロー外 = 中空）。
+// hollow は中を白く開ける（フォロー外 = 中空）。フォロー内は淡い塗りつぶし。
 const PIPE_T = 1.0;
 const PIPE_X0 = -40;
 function buildPipe(mouth: P3, hollow: boolean): Pipe {
   const g = new THREE.Group();
   const len = mouth.x - PIPE_X0;
   const cx = PIPE_X0 + len / 2;
-  if (hollow) {
-    g.add(rect(len, PIPE_T, basic(BG), cx, mouth.y));
-    const edge = PIPE_T / 2 - 0.05;
-    g.add(rect(len, 0.1, basic(REST), cx, mouth.y + edge));
-    g.add(rect(len, 0.1, basic(REST), cx, mouth.y - edge));
-  } else {
-    g.add(rect(len, PIPE_T, basic(REST), cx, mouth.y));
-  }
-  // 口の輪（発射の瞬間に白く光る）
-  const ringMat = basic(REST);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 32), ringMat);
+  const body = strokeRect(len, PIPE_T, basic(hollow ? PAPER : PIPE_FILL));
+  body.position.set(cx, mouth.y, 0);
+  g.add(body);
+  // 口の輪（発射の瞬間に話題の色で光る）
+  const ringMat = basic(PAPER);
+  const ring = strokeCircle(0.62, ringMat);
   ring.position.set(mouth.x, mouth.y, 0.01);
   g.add(ring);
   return { group: g, ringMat };
@@ -136,29 +163,35 @@ function buildDrum(i: number): DrumPad {
   const r = DRUM_RADII[i];
   const g = new THREE.Group();
   g.position.set(hit.x, hit.y - r, 0);
-  const mat = basic(REST);
-  g.add(new THREE.Mesh(new THREE.CircleGeometry(r, 40), mat));
-  const inner = new THREE.Mesh(new THREE.RingGeometry(r * 0.52, r * 0.66, 32), darkMat);
-  inner.position.z = 0.01;
+  const mat = basic(PAPER);
+  g.add(strokeCircle(r, mat));
+  const inner = new THREE.Mesh(
+    new THREE.RingGeometry(r * 0.55, r * 0.55 + STROKE, 32),
+    inkMat,
+  );
+  inner.position.z = 0.02;
   g.add(inner);
   return { group: g, mat, kick: i === 0 };
 }
 
 // 傾いた棒（除外バー / 落選バー）。当たると光って揺れる。
-function buildBar(px: P3, len: number, thick: number, rot: number): { group: THREE.Group; bar: Bar } {
+function buildBar(px: P3, len: number, rot: number): { group: THREE.Group; bar: Bar } {
   const g = new THREE.Group();
   const mat = basic(REST);
-  const mesh = rect(len, thick, mat, px.x, px.y, 0);
+  const mesh = rect(len, STROKE, mat, px.x, px.y, 0);
   mesh.rotation.z = rot;
   g.add(mesh);
   return { group: g, bar: { mesh, mat, baseRot: rot } };
 }
 
-// エージェントの円（塗りつぶし）。group の原点は円の中心。
+// エージェントの円（白い塗り + INK の輪郭）。group の原点は円の中心。
+// 輪郭の素材は選択の暗転で色を変えるので userData.outlineMat に入れておく。
 export function buildAgent(): { group: THREE.Group; mat: THREE.MeshBasicMaterial } {
-  const mat = basic(WHITE);
+  const mat = basic(PAPER);
+  const outlineMat = basic(INK);
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(new THREE.CircleGeometry(AGENT_R, 32), mat));
+  g.add(strokeCircle(AGENT_R, mat, outlineMat));
+  g.userData.outlineMat = outlineMat;
   return { group: g, mat };
 }
 
@@ -167,7 +200,7 @@ export function buildStage(): Stage {
   const group = new THREE.Group();
 
   // 床の線（y = 0 の細い横線。x は -40 から 17 まで）
-  group.add(rect(57, 0.06, basic(FLOOR_LINE), -11.5, 0));
+  group.add(rect(57, STROKE, inkMat, -11.5, 0));
 
   // 背景の大きな輪。拍で少し拡大する。
   const bgRings: THREE.Mesh[] = [];
@@ -184,13 +217,14 @@ export function buildStage(): Stage {
     bgRings.push(ring);
   }
 
-  // 話題の地区（話題の色の輪＋同じ色の暗い塗り）
+  // 話題の地区（話題の色の輪＋白に寄せた淡い塗り）
+  const paperC = new THREE.Color(PAPER);
   for (let i = 0; i < TOPICS.length; i++) {
     const p = districtPos(i, TOPICS.length);
     const c = new THREE.Color(TOPICS[i].color);
     const fill = new THREE.Mesh(
       new THREE.CircleGeometry(1.02, 40),
-      new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(0.16) }),
+      new THREE.MeshBasicMaterial({ color: c.clone().lerp(paperC, 0.86) }),
     );
     fill.position.set(p.x, p.y, Z_DISTRICT);
     group.add(fill);
@@ -199,7 +233,7 @@ export function buildStage(): Stage {
     group.add(ring);
   }
 
-  // 発射パイプ（フォロー内は実線、フォロー外は中空）
+  // 発射パイプ（フォロー内は淡い塗り、フォロー外は中空）
   const pipes = [buildPipe(PIPE_IN_MOUTH, false), buildPipe(PIPE_OUT_MOUTH, true)];
   for (const p of pipes) group.add(p.group);
 
@@ -208,16 +242,16 @@ export function buildStage(): Stage {
   for (const d of drums) group.add(d.group);
 
   // 除外バー（傾いた棒＋画面外まで伸びる吊り線）
-  const cymbal = buildBar(CYMBAL_POS, 1.8, 0.12, -0.35);
+  const cymbal = buildBar(CYMBAL_POS, 1.8, -0.35);
   group.add(cymbal.group);
   const wireH = 12;
-  group.add(rect(0.04, wireH, darkMat, CYMBAL_POS.x, CYMBAL_POS.y + wireH / 2, -0.01));
+  group.add(rect(STROKE, wireH, hairMat, CYMBAL_POS.x, CYMBAL_POS.y + wireH / 2, -0.01));
 
   // 除外箱 / 落選箱
-  const scrapBin = openBin(basic(REST));
+  const scrapBin = openBin(inkMat);
   scrapBin.position.set(SCRAP_BIN.x, 0, 0);
   group.add(scrapBin);
-  const rejectBin = openBin(basic(REST));
+  const rejectBin = openBin(inkMat);
   rejectBin.position.set(REJECT_BIN.x, 0, 0);
   group.add(rejectBin);
 
@@ -226,9 +260,12 @@ export function buildStage(): Stage {
   for (let i = 0; i < VIBE_FREQS.length; i++) {
     const hit = vibeBarHit(i);
     const pillarH = hit.y - VIBE_BAR_T;
-    group.add(rect(VIBE_BAR_LEN, pillarH, darkMat, hit.x, pillarH / 2, -0.01));
-    const mat = basic(REST);
-    const bar = rect(VIBE_BAR_LEN, VIBE_BAR_T, mat, hit.x, hit.y - VIBE_BAR_T / 2);
+    const pillar = strokeRect(VIBE_BAR_LEN, pillarH, paperMat);
+    pillar.position.set(hit.x, pillarH / 2, -0.01);
+    group.add(pillar);
+    const mat = basic(PAPER);
+    const bar = strokeRect(VIBE_BAR_LEN, VIBE_BAR_T, mat);
+    bar.position.set(hit.x, hit.y - VIBE_BAR_T / 2);
     group.add(bar);
     vibeBars.push({ mesh: bar, mat, restY: bar.position.y });
   }
@@ -238,10 +275,10 @@ export function buildStage(): Stage {
   for (let i = 0; i < 4; i++) {
     const hit = bassStringHit(i);
     for (const s of [-1, 1]) {
-      group.add(rect(0.06, hit.y, darkMat, hit.x + (s * BASS_STRING_LEN) / 2, hit.y / 2, -0.01));
+      group.add(rect(STROKE, hit.y, hairMat, hit.x + (s * BASS_STRING_LEN) / 2, hit.y / 2, -0.01));
     }
     const mat = basic(REST);
-    const str = rect(BASS_STRING_LEN, 0.07, mat, hit.x, hit.y);
+    const str = rect(BASS_STRING_LEN, STROKE, mat, hit.x, hit.y);
     group.add(str);
     bassStrings.push({ mesh: str, mat, restY: hit.y });
   }
@@ -251,16 +288,25 @@ export function buildStage(): Stage {
   for (let i = 0; i < 3; i++) {
     const hit = bellHit(i);
     const cy = hit.y - BELL_R; // 頂点が打点
-    group.add(rect(0.14, cy, darkMat, hit.x, cy / 2, -0.01));
-    const mat = basic(REST);
-    const bell = new THREE.Mesh(new THREE.CircleGeometry(BELL_R, 32, 0, Math.PI), mat);
+    group.add(rect(STROKE, cy, inkMat, hit.x, cy / 2, -0.01));
+    const mat = basic(PAPER);
+    const bell = new THREE.Group();
+    // 弧（半分の輪）と底辺が輪郭、内側が塗り
+    bell.add(new THREE.Mesh(new THREE.CircleGeometry(BELL_R - STROKE, 32, 0, Math.PI), mat));
+    const arc = new THREE.Mesh(
+      new THREE.RingGeometry(BELL_R - STROKE, BELL_R, 32, 1, 0, Math.PI),
+      inkMat,
+    );
+    arc.position.z = 0.01;
+    bell.add(arc);
+    bell.add(rect(2 * BELL_R, STROKE, inkMat, 0, 0, 0.01));
     bell.position.set(hit.x, cy, 0);
     group.add(bell);
     bells.push({ mesh: bell, mat });
   }
 
   // 落選バー
-  const trap = buildBar(TRAP_RIM, 1.4, 0.12, -0.6);
+  const trap = buildBar(TRAP_RIM, 1.4, -0.6);
   group.add(trap.group);
 
   return {

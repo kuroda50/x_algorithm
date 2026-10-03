@@ -13,8 +13,9 @@
   top: 0;
   transform: translate(-50%, -50%);
   text-align: center;
-  color: #8a90a2;
-  font-size: 11px;
+  color: #111111;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1.3;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -22,7 +23,7 @@
 }
 
 .stage-label.dim {
-  color: #4c5160;
+  color: #9a9a9a;
 }
 
 .stage-label.topic {
@@ -31,7 +32,7 @@
 }
 
 .stage-label.agent {
-  color: #ffffff;
+  color: #111111;
   font-size: 11px;
 }
 
@@ -41,7 +42,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #e9ecf4;
+  color: #111111;
   font-size: 13px;
 }
 
@@ -54,7 +55,7 @@
   transform: translate(-50%, -50%);
   font-size: 15px;
   line-height: 1;
-  color: #fff;
+  color: #111111;
   animation: stage-react-float 1s ease-out forwards;
 }
 
@@ -73,7 +74,7 @@
 
 .stage-react.follow {
   font-size: 10px;
-  color: #9aa0b0;
+  color: #777777;
   white-space: nowrap;
 }
 
