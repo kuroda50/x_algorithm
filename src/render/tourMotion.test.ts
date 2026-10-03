@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Candidate } from '../sim/types';
 import {
+  assignFlow,
   assignTour,
+  FLOW_BATCH_BEATS,
   TOUR_DOOR_FALL,
   TOUR_X_BELL,
   TOUR_X_DIVERSITY,
@@ -62,6 +64,29 @@ function batch(drops: (1 | 4 | null)[]): Candidate[] {
     }
   }
   assignTour(list);
+  return list;
+}
+
+// 同じ 1 回分を流し続ける方式（base 付き）で流す。spawnBeat はフィード要求があった拍。
+function flowBatch(drops: (1 | 4 | null)[], spawnBeat: number): Candidate[] {
+  const list: Candidate[] = [];
+  let id = 0;
+  for (const source of ['in', 'out'] as const) {
+    for (let slot = 0; slot < 4; slot++) {
+      list.push(
+        cand({
+          id: id * 10 + slot,
+          agentId: id,
+          source,
+          slot,
+          topic: id % 5,
+          dropStage: drops[id] ?? null,
+        }),
+      );
+      id++;
+    }
+  }
+  assignFlow(list, spawnBeat);
   return list;
 }
 
@@ -156,6 +181,97 @@ describe('tourBallState', () => {
         expect(Number.isFinite(s.opacity)).toBe(true);
       }
     }
+  });
+});
+
+describe('tourBallState（流し続ける方式）', () => {
+  it('各工程で、機械が当たる時刻にボールはその機械の x にいる', () => {
+    for (const c of flowBatch([1, null, 4, null, 4, 1, null, null], 70)) {
+      const T = tourTimes(c);
+      const at = (t: number) => tourBallState(c, t, AGENT);
+      expect(at(T.filter).pos.x).toBeCloseTo(TOUR_X_PRESS, 6);
+      if (c.dropStage === 1) {
+        expect(at(T.scrapDoor!).pos.x).toBeCloseTo(TOUR_X_SCRAP, 6);
+      } else {
+        expect(at(T.score!).pos.x).toBeCloseTo(TOUR_X_SCORE, 6);
+        expect(at(T.diversity!).pos.x).toBeCloseTo(TOUR_X_DIVERSITY, 6);
+        expect(at(T.select!).pos.x).toBeCloseTo(TOUR_X_REJECT, 6);
+      }
+      if (c.dropStage === null) {
+        expect(at(T.bell!).pos.x).toBeCloseTo(TOUR_X_BELL, 6);
+        expect(at(T.launch!).pos.x).toBeCloseTo(TOUR_X_END, 6);
+      }
+    }
+  });
+
+  it('ベルトの上にいる間、x が時刻について戻らない', () => {
+    for (const c of flowBatch([1, null, 4, null, 4, 1, null, null], 70)) {
+      const T = tourTimes(c);
+      let prev = -Infinity;
+      for (let t = T.land; t <= lastBeat(c); t += STEP) {
+        const s = tourBallState(c, t, AGENT);
+        if (!onBelt(s)) continue;
+        expect(s.pos.x).toBeGreaterThanOrEqual(prev - 1e-9);
+        prev = s.pos.x;
+      }
+    }
+  });
+
+  // 着地直後（v = t - base - 1.25 < 0 でベルトの 1 マス目に止まって待つあいだ）は、
+  // 先行するボールが移動途中で 1.25 まで近づく。2 個ともベルトに乗って動き始めたあとは
+  // 常に 1 マス以上（最小 2.0）離れている。
+  const expectGap = (c0: Candidate, c1: Candidate): void => {
+    const t0 = Math.max(tourTimes(c0).land, tourTimes(c1).land);
+    const t1 = Math.min(tourTimes(c0).launch!, tourTimes(c1).launch!);
+    for (let t = t0; t <= t1; t += STEP) {
+      const s0 = tourBallState(c0, t, AGENT);
+      const s1 = tourBallState(c1, t, AGENT);
+      if (!onBelt(s0) || !onBelt(s1)) continue;
+      const settled =
+        t - c0.tour!.base! - 1.25 >= 0 && t - c1.tour!.base! - 1.25 >= 0;
+      expect(Math.abs(s0.pos.x - s1.pos.x)).toBeGreaterThanOrEqual(settled ? 1.5 : 1.2);
+    }
+  };
+
+  it('連続する 2 個（base が 1 違う）は同じ時刻に重ならない距離にいる', () => {
+    const b = flowBatch([null, null, null, null, null, null, null, null], 70);
+    const byBase = [...b].sort((a, z) => a.tour!.base! - z.tour!.base!);
+    for (let k = 0; k + 1 < byBase.length; k++) {
+      const c0 = byBase[k];
+      const c1 = byBase[k + 1];
+      expect(c1.tour!.base).toBe(c0.tour!.base! + 1);
+      expectGap(c0, c1);
+    }
+  });
+
+  it('連続する 2 回分（FLOW_BATCH_BEATS 違い）でも前後のボールが離れている', () => {
+    const b1 = flowBatch([null, null, null, null, null, null, null, null], 70);
+    const b2 = flowBatch(
+      [null, null, null, null, null, null, null, null],
+      70 + FLOW_BATCH_BEATS,
+    );
+    const last1 = [...b1].sort((a, z) => z.tour!.base! - a.tour!.base!)[0];
+    const first2 = [...b2].sort((a, z) => a.tour!.base! - z.tour!.base!)[0];
+    expectGap(last1, first2);
+  });
+
+  it('catch の時刻にエージェントの位置にいる', () => {
+    for (const c of flowBatch([1, null, 4, null, 4, 1, null, null], 70)) {
+      if (c.dropStage !== null) continue;
+      const T = tourTimes(c);
+      const s = tourBallState(c, T.catch!, AGENT);
+      expect(s.pos.x).toBeCloseTo(AGENT.x, 6);
+      expect(s.pos.y).toBeCloseTo(AGENT.y, 6);
+    }
+  });
+
+  it('emerge 前は見えず、land の時刻にベルトの左端に着く', () => {
+    const c = flowBatch([null, null, null, null, null, null, null, null], 70)[0];
+    const T = tourTimes(c);
+    expect(tourBallState(c, T.emerge - 0.01, AGENT).visible).toBe(false);
+    const landed = tourBallState(c, T.land, AGENT);
+    expect(landed.pos.x).toBeCloseTo(-15, 6);
+    expect(landed.pos.y).toBeCloseTo(TOUR_BELT_Y + landed.radius, 6);
   });
 });
 

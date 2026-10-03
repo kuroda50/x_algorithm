@@ -3,6 +3,7 @@
 // 1 個ずつ処理される。ここでは「いつ・どこで」起きるかだけを決める純粋な定数と関数を置く
 // （DOM・three.js・show/score.ts は import しない。score.ts と render/tourMotion.ts がここを読む）。
 // 時刻の単位はすべてビート（60 BPM なので 1 拍 = 1 秒）で、絶対時刻（c.startBeat は使わない）。
+import { CANDIDATES_IN, CANDIDATES_OUT } from '../sim/config';
 import type { Candidate } from '../sim/types';
 
 export const TOUR_SPAWN_BEAT = 4; // この拍のフィード要求 1 回分が紹介のボールになる
@@ -42,6 +43,28 @@ export const TOUR_FEED_T0 = 59.5; // 発射台から飛ぶ時刻（順番は i�
 export const TOUR_FLY = 1.25; // 発射台からエージェントまで飛ぶ拍数
 export const TOUR_DOOR_FALL = 0.5; // 扉が開いてから箱の口に入るまで
 
+// --- 流し続ける方式（デモ・自由操作） ---
+// ボールは 1 拍に 1 個パイプから出て、ベルトが 1 拍に 1 マス進む。
+export const FLOW_BATCH_BEATS = CANDIDATES_IN + CANDIDATES_OUT; // 8。フィード要求の間隔（拍）
+export const FLOW_FALL = 0.5; // パイプから出てベルトに着くまで
+export const FLOW_MOVE = 0.5; // 1 マス進むのにかける拍数
+export const FLOW_FLY = 1; // 発射台からエージェントまで
+export const FLOW_SLOT_PRESS = 3;
+export const FLOW_SLOT_SCORE = 7;
+export const FLOW_SLOT_DIVERSITY = 11;
+export const FLOW_SLOT_SELECT = 15;
+export const FLOW_SLOT_BELL = 16;
+export const FLOW_SLOT_END = 18;
+// マス 0..18 の x。機械のあるマスは機械の x、その間は等間隔。
+export const FLOW_SLOT_X: readonly number[] = [
+  -15, -12.5, -10, -7.5, // 0: 着地 (TOUR_X_LAND) … 3: プレス (TOUR_X_PRESS)
+  -5, -2.5, 0, 2.5, // 7: 計測ゲート (TOUR_X_SCORE)
+  4.925, 7.35, 9.775, 12.2, // 11: しぼり機 (TOUR_X_DIVERSITY)
+  14.65, 17.1, 19.55, 22, // 15: 選抜の扉 (TOUR_X_REJECT)
+  25, // 16: ベル (TOUR_X_BELL)
+  27, 29, // 18: 発射台 (TOUR_X_END)
+];
+
 // ボール 1 個の紹介の時刻表。null は「その出来事が起きない」。
 export interface TourTimes {
   emerge: number;
@@ -55,13 +78,72 @@ export interface TourTimes {
   reject: number | null; // 落選箱の口に入る時刻（select + TOUR_DOOR_FALL）。落選のみ
   bell: number | null; // 通過のみ
   launch: number | null; // 発射台から飛ぶ時刻。通過のみ
-  catch: number | null; // launch + TOUR_FLY。通過のみ
+  catch: number | null; // launch + 飛ぶ拍数（紹介は TOUR_FLY、流し続ける方式は FLOW_FLY）。通過のみ
 }
 
-// c.tour が必要（なければ throw）。dropStage と tour の k/j/i だけから決める。
+// c.tour が必要（なければ throw）。dropStage と tour の k/j/i（+ base）だけから決める。
+// base があるときは流し続ける方式: マス s のボールは時刻 base + s + 1 を中心に ±0.25 拍
+// 止まっていて、止まっているあいだにそのマスの機械が当たる。
 export function tourTimes(c: Candidate): TourTimes {
   if (!c.tour) throw new Error('tourTimes: c.tour がありません');
-  const { k, j, i } = c.tour;
+  const { k, j, i, base } = c.tour;
+  if (base !== undefined) {
+    const emerge = base;
+    const land = base + FLOW_FALL;
+    const filter = base + FLOW_SLOT_PRESS + 1;
+    if (c.dropStage === 1) {
+      // プレスを出てから扉の上まで運ばれ、着いたら扉が開く
+      const scrapDoor = filter + 0.75;
+      return {
+        emerge,
+        land,
+        filter,
+        scrapDoor,
+        scrap: scrapDoor + TOUR_DOOR_FALL,
+        score: null,
+        diversity: null,
+        select: null,
+        reject: null,
+        bell: null,
+        launch: null,
+        catch: null,
+      };
+    }
+    const score = base + FLOW_SLOT_SCORE + 1;
+    const diversity = base + FLOW_SLOT_DIVERSITY + 1;
+    const select = base + FLOW_SLOT_SELECT + 1;
+    if (c.dropStage === 4) {
+      return {
+        emerge,
+        land,
+        filter,
+        scrapDoor: null,
+        scrap: null,
+        score,
+        diversity,
+        select,
+        reject: select + TOUR_DOOR_FALL,
+        bell: null,
+        launch: null,
+        catch: null,
+      };
+    }
+    const launch = base + FLOW_SLOT_END + 1;
+    return {
+      emerge,
+      land,
+      filter,
+      scrapDoor: null,
+      scrap: null,
+      score,
+      diversity,
+      select,
+      reject: null,
+      bell: base + FLOW_SLOT_BELL + 1,
+      launch,
+      catch: launch + FLOW_FLY,
+    };
+  }
   const emerge = TOUR_EMERGE_T0 + TOUR_EMERGE_EVERY * k;
   const land = emerge + TOUR_FALL;
   const filter = TOUR_FILTER_T0 + TOUR_CYCLE * k;
@@ -119,12 +201,10 @@ export function tourTimes(c: Candidate): TourTimes {
   };
 }
 
-// 1 回分の候補に tour と doneBeat を付ける（配列の要素を書き換える）。
-// 順番 k: フォロー内とフォロー外を交互に（in の slot 昇順、out の slot 昇順を
+// 1 回分の候補をパイプから出る順（順番 k）に並べる。
+// フォロー内とフォロー外を交互に（in の slot 昇順、out の slot 昇順を
 // in, out, in, out… と混ぜる。片方が尽きたら残りを続ける）。
-// j: dropStage !== 1 のものを k の順に 0 から。i: dropStage === null のものを k の順に 0 から。
-// doneBeat: 最後の出来事の時刻の floor（除外 = scrap、落選 = reject、通過 = catch）。
-export function assignTour(batch: Candidate[]): void {
+function tourOrder(batch: Candidate[]): Candidate[] {
   const inn = batch
     .filter((c) => c.source === 'in')
     .sort((a, b) => a.slot - b.slot || a.id - b.id);
@@ -136,9 +216,13 @@ export function assignTour(batch: Candidate[]): void {
     if (a < inn.length) order.push(inn[a++]);
     if (o < out.length) order.push(out[o++]);
   }
-  order.forEach((c, k) => {
-    c.tour = { k, j: -1, i: -1 };
-  });
+  return order;
+}
+
+// tour を付けた 1 回分（order は tourOrder の返す順）に j/i と doneBeat を付ける。
+// j: dropStage !== 1 のものを k の順に 0 から。i: dropStage === null のものを k の順に 0 から。
+// doneBeat: 最後の出来事の時刻の floor（除外 = scrap、落選 = reject、通過 = catch）。
+function finishTour(order: Candidate[]): void {
   let j = 0;
   let i = 0;
   for (const c of order) {
@@ -151,4 +235,31 @@ export function assignTour(batch: Candidate[]): void {
       c.dropStage === 1 ? T.scrap! : c.dropStage === 4 ? T.reject! : T.catch!;
     c.doneBeat = Math.floor(last);
   }
+}
+
+// 1 回分の候補に tour と doneBeat を付ける（配列の要素を書き換える）。
+// 順番 k・j・i の決め方は tourOrder / finishTour を見よ。
+export function assignTour(batch: Candidate[]): void {
+  const order = tourOrder(batch);
+  order.forEach((c, k) => {
+    c.tour = { k, j: -1, i: -1 };
+  });
+  finishTour(order);
+}
+
+// 流し続ける方式で 1 回分の候補に tour と doneBeat を付ける。
+// 順番 k・j・i の決め方は assignTour と同じ（in/out を交互）。base = spawnBeat + 1 + k。
+export function assignFlow(batch: Candidate[], spawnBeat: number): void {
+  const order = tourOrder(batch);
+  order.forEach((c, k) => {
+    c.tour = { k, j: -1, i: -1, base: spawnBeat + 1 + k };
+  });
+  finishTour(order);
+}
+
+// 流し始めてから n 拍目（n = 0, 1, 2…）にフィード要求するエージェントの id。要求しない拍は null。
+// n が FLOW_BATCH_BEATS の倍数の拍に、(n / FLOW_BATCH_BEATS) % agentCount のエージェントが要求する。
+export function flowRequester(n: number, agentCount: number): number | null {
+  if (n < 0 || n % FLOW_BATCH_BEATS !== 0) return null;
+  return (n / FLOW_BATCH_BEATS) % agentCount;
 }

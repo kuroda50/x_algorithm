@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_AGENT_COUNT, DEFAULT_PARAMS } from '../sim/config';
 import type { Candidate } from '../sim/types';
 import { createWorld, stepBeat } from '../sim/world';
-import { requestAt, SHOW_SEED, TOUR_END_BEAT } from './director';
+import { requesterAt, SHOW_SEED, TOUR_END_BEAT } from './director';
 import {
+  assignFlow,
   assignTour,
+  FLOW_BATCH_BEATS,
+  FLOW_FALL,
+  flowRequester,
   TOUR_BELL_AFTER,
   TOUR_CYCLE,
   TOUR_DOOR_FALL,
@@ -208,12 +212,118 @@ describe('tourTimes', () => {
   });
 });
 
+describe('tourTimes（流し続ける方式）', () => {
+  it('通過: 機械が当たる時刻は base + マス + 1（emerge は base、land は base + FLOW_FALL）', () => {
+    const b = 100;
+    const c = cand({ dropStage: null, tour: { k: 0, j: 0, i: 0, base: b } });
+    const T = tourTimes(c);
+    expect(T.emerge).toBe(b);
+    expect(T.land).toBe(b + FLOW_FALL);
+    expect(T.filter).toBe(b + 4);
+    expect(T.score).toBe(b + 8);
+    expect(T.diversity).toBe(b + 12);
+    expect(T.select).toBe(b + 16);
+    expect(T.bell).toBe(b + 17);
+    expect(T.launch).toBe(b + 19);
+    expect(T.catch).toBe(b + 20);
+    const times = [
+      T.emerge,
+      T.land,
+      T.filter,
+      T.score!,
+      T.diversity!,
+      T.select!,
+      T.bell!,
+      T.launch!,
+      T.catch!,
+    ];
+    for (let i = 1; i < times.length; i++) expect(times[i]).toBeGreaterThan(times[i - 1]);
+  });
+
+  it('除外（dropStage 1）: filter + 0.75 に扉、+ TOUR_DOOR_FALL で箱。score 以降は null', () => {
+    const c = cand({ dropStage: 1, tour: { k: 0, j: -1, i: -1, base: 100 } });
+    const T = tourTimes(c);
+    expect(T.filter).toBe(104);
+    expect(T.scrapDoor).toBe(T.filter + 0.75);
+    expect(T.scrap).toBe(T.scrapDoor! + TOUR_DOOR_FALL);
+    expect(T.score).toBeNull();
+    expect(T.select).toBeNull();
+    expect(T.bell).toBeNull();
+    expect(T.launch).toBeNull();
+    expect(T.catch).toBeNull();
+  });
+
+  it('落選（dropStage 4）: select + TOUR_DOOR_FALL で箱。bell/launch/catch は null', () => {
+    const c = cand({ dropStage: 4, tour: { k: 0, j: 0, i: -1, base: 100 } });
+    const T = tourTimes(c);
+    expect(T.select).toBe(116);
+    expect(T.reject).toBe(T.select! + TOUR_DOOR_FALL);
+    expect(T.bell).toBeNull();
+    expect(T.launch).toBeNull();
+    expect(T.catch).toBeNull();
+  });
+});
+
+describe('assignFlow', () => {
+  it('base = spawnBeat + 1 + k。順番は assignTour と同じく in/out 交互', () => {
+    const b = batch([1, null, 4, null, 4, 1, null, null]);
+    assignFlow(b, 70);
+    const byK = ordered(b);
+    expect(byK.map((c) => c.tour!.base)).toEqual([71, 72, 73, 74, 75, 76, 77, 78]);
+    expect(byK.map((c) => c.source)).toEqual([
+      'in',
+      'out',
+      'in',
+      'out',
+      'in',
+      'out',
+      'in',
+      'out',
+    ]);
+    expect(byK.map((c) => c.tour!.j)).toEqual([-1, 0, 1, -1, 2, 3, 4, 5]);
+    expect(byK.map((c) => c.tour!.i)).toEqual([-1, -1, 0, -1, -1, 1, 2, 3]);
+  });
+
+  it('doneBeat は最後の出来事（scrap / reject / catch）の時刻の floor', () => {
+    const b = batch([1, null, null, 4, 4, null, null, null]);
+    assignFlow(b, 70);
+    for (const c of b) {
+      const T = tourTimes(c);
+      const last =
+        c.dropStage === 1 ? T.scrap! : c.dropStage === 4 ? T.reject! : T.catch!;
+      expect(c.doneBeat).toBe(Math.floor(last));
+    }
+  });
+
+  it('連続する 2 回分（spawnBeat が FLOW_BATCH_BEATS 違い）の base は重ならず 1 拍おきに続く', () => {
+    const b1 = batch([null, null, null, null, null, null, null, null]);
+    const b2 = batch([null, null, null, null, null, null, null, null]);
+    assignFlow(b1, 70);
+    assignFlow(b2, 70 + FLOW_BATCH_BEATS);
+    const bases = [...b1, ...b2].map((c) => c.tour!.base!).sort((a, z) => a - z);
+    for (let i = 1; i < bases.length; i++) expect(bases[i]).toBe(bases[i - 1] + 1);
+  });
+});
+
+describe('flowRequester', () => {
+  it('FLOW_BATCH_BEATS の倍数の拍に (n / FLOW_BATCH_BEATS) % agentCount、それ以外は null', () => {
+    expect(flowRequester(0, 8)).toBe(0);
+    for (let n = 1; n < FLOW_BATCH_BEATS; n++) expect(flowRequester(n, 8)).toBeNull();
+    expect(flowRequester(FLOW_BATCH_BEATS, 8)).toBe(1);
+    expect(flowRequester(7 * FLOW_BATCH_BEATS, 8)).toBe(7);
+    expect(flowRequester(8 * FLOW_BATCH_BEATS, 8)).toBe(0); // 一巡して先頭へ
+    expect(flowRequester(-1, 8)).toBeNull();
+    expect(flowRequester(-FLOW_BATCH_BEATS, 8)).toBeNull();
+  });
+});
+
 describe('発表用のシード', () => {
   it('SHOW_SEED で 4 拍目に出る 8 個: フィルタで落ちる 1〜2 個・届く 3 個', () => {
     const world = createWorld(SHOW_SEED, DEFAULT_AGENT_COUNT);
     let spawned: Candidate[] = [];
     while (world.beat < TOUR_SPAWN_BEAT) {
-      const events = stepBeat(world, DEFAULT_PARAMS, requestAt(world.beat + 1));
+      const request = requesterAt(world.beat + 1, world.agents.length) ?? false;
+      const events = stepBeat(world, DEFAULT_PARAMS, request);
       if (events.spawned.length > 0) spawned = events.spawned;
     }
     expect(spawned).toHaveLength(8);

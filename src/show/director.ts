@@ -1,6 +1,6 @@
 // 発表の進行表。どの拍で・どこにカメラを寄せて・どの字幕を出すかを決める純粋なデータと関数。
 // DOM にも AudioContext にも触れない。main.ts が拍の位置からここを引く。
-import { TOUR_SPAWN_BEAT } from './tour';
+import { flowRequester, TOUR_SPAWN_BEAT } from './tour';
 
 // カメラが収める範囲（ワールド座標。x 右・y 上）
 export interface ShowView {
@@ -95,17 +95,17 @@ export const SCENES: readonly Scene[] = [
   {
     id: 'ensemble',
     startBeat: 64,
-    bpm: 110,
+    bpm: 90,
     view: null,
     step: null,
-    title: 'これを速く回すと、曲になる。',
+    title: 'これを、休まず回し続ける。',
     caption: '最初は、みんな同じ白。',
     showBubble: false,
   },
   {
     id: 'drift',
-    startBeat: 112,
-    bpm: 126,
+    startBeat: 88,
+    bpm: 100,
     view: null,
     step: null,
     title: '反応するたびに、色がつく。',
@@ -114,8 +114,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'bubble',
-    startBeat: 176,
-    bpm: 140,
+    startBeat: 118,
+    bpm: 110,
     view: { x0: 14, x1: 30, y0: -4, y1: 15 },
     step: null,
     title: '同じ曲なのに、見ているものは違う。',
@@ -124,8 +124,8 @@ export const SCENES: readonly Scene[] = [
   },
   {
     id: 'finale',
-    startBeat: 248,
-    bpm: 150,
+    startBeat: 146,
+    bpm: 120,
     view: null,
     step: null,
     title: 'これが、フィルターバブル。',
@@ -134,17 +134,18 @@ export const SCENES: readonly Scene[] = [
   },
 ];
 
-export const SHOW_END_BEAT = 280; // この拍で発表を終えて締めの画面へ
+export const SHOW_END_BEAT = 160; // この拍で発表を終えて締めの画面へ
 export const LEARN_START_BEAT = 64; // これより前は興味を動かさない（全員が白いまま）
 export const SHOW_SEED = 3; // 発表用の世界の乱数シード（毎回同じ展開にする）
 export const STEP_COUNT = 6; // 紹介する工程の数
 export const TOUR_END_BEAT = 64; // 工程の紹介が終わる拍（ensemble の startBeat と同じ）
 
-// ビート beat（整数。stepBeat がこれから処理する拍）でフィード要求をするか。
-// 紹介中は TOUR_SPAWN_BEAT の拍（ベルトに流す 1 回分）だけ。TOUR_END_BEAT 以降は毎拍。
-export function requestAt(beat: number): boolean {
-  if (beat >= TOUR_END_BEAT) return true;
-  return beat === TOUR_SPAWN_BEAT;
+// ビート beat（整数。stepBeat がこれから処理する拍）にフィード要求するエージェントの id。しない拍は null。
+// 紹介中（beat < TOUR_END_BEAT）は TOUR_SPAWN_BEAT の拍だけ（id は beat % agentCount）。
+// TOUR_END_BEAT 以降は flowRequester(beat - TOUR_END_BEAT, agentCount)。
+export function requesterAt(beat: number, agentCount: number): number | null {
+  if (beat < TOUR_END_BEAT) return beat === TOUR_SPAWN_BEAT ? beat % agentCount : null;
+  return flowRequester(beat - TOUR_END_BEAT, agentCount);
 }
 
 // beat にいる場面の SCENES の添字。範囲外は端に丸める（負は 0、終了後は最後）。

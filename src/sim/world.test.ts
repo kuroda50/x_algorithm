@@ -79,6 +79,21 @@ describe('フィード要求', () => {
     const next = stepBeat(world, DEFAULT_PARAMS);
     expect(next.spawned.length).toBeGreaterThan(0);
   });
+
+  it('request に数値を渡すとその id のエージェント 1 体が要求する（拍との対応は見ない）', () => {
+    const world = createWorld(1, 6);
+    for (let i = 0; i < 3; i++) {
+      const events = stepBeat(world, DEFAULT_PARAMS, 2);
+      expect(events.spawned.length).toBeGreaterThan(0);
+      expect(new Set(events.spawned.map((c) => c.agentId))).toEqual(new Set([2]));
+    }
+  });
+
+  it('request の数値が範囲外なら要求しない', () => {
+    const world = createWorld(1, 6);
+    expect(stepBeat(world, DEFAULT_PARAMS, 6).spawned).toHaveLength(0);
+    expect(stepBeat(world, DEFAULT_PARAMS, -1).spawned).toHaveLength(0);
+  });
 });
 
 describe('doneBeat', () => {
@@ -152,18 +167,21 @@ describe('フィルターバブル', () => {
   for (const seed of [1, 2, 3]) {
     it(`seed ${seed}: フィードが偏り、エージェント間で分かれる`, () => {
       const world = createWorld(seed, 12);
+      // このテストは毎拍フィード要求する。届く件数がベルトの約 20 倍なので、
+      // 1 回の効きを強くした分（config の LEARN_*）を戻して確かめる
+      const params = { ...DEFAULT_PARAMS, learningRate: DEFAULT_PARAMS.learningRate / 12 };
 
-      // フィードがたまるまでは指標を記録しない
-      run(world, DEFAULT_PARAMS, 8);
+      // フィードがたまるまでは指標を記録しない（比べられるエージェントが 2 体そろうまで）
+      run(world, params, 6);
       expect(world.metrics).toHaveLength(0);
 
-      run(world, DEFAULT_PARAMS, 32);
+      run(world, params, 34);
       const m40 = world.metrics[world.metrics.length - 1];
       // 始まってすぐ偏りきっていないこと
       expect(m40.bubble).toBeLessThan(0.5);
       expect(m40.beat).toBe(40);
 
-      run(world, DEFAULT_PARAMS, 360);
+      run(world, params, 360);
       const m400 = world.metrics[world.metrics.length - 1];
       expect(m400.beat).toBe(400);
       expect(m400.bubble).toBeGreaterThanOrEqual(m40.bubble + 0.15);

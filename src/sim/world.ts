@@ -193,8 +193,14 @@ function deliver(world: World, cand: Candidate, params: Params, beat: number): D
 }
 
 // world.beat を 1 進め、そのビートの出来事を返す。
-// request が false のビートはフィード要求（4）を行わない（工程の紹介中に流すボールを減らすため）。
-export function stepBeat(world: World, params: Params, request = true): BeatEvents {
+// request: true なら beat % agents.length のエージェントがフィード要求する。
+// 数値ならその id のエージェント 1 体が要求する（拍との対応は見ない。範囲外なら要求しない）。
+// false なら要求しない（工程の紹介中に流すボールを減らすため）。
+export function stepBeat(
+  world: World,
+  params: Params,
+  request: boolean | number = true,
+): BeatEvents {
   const beat = ++world.beat;
   const events: BeatEvents = { beat, spawned: [], dropped: [], delivered: [] };
 
@@ -226,10 +232,12 @@ export function stepBeat(world: World, params: Params, request = true): BeatEven
     }
   }
 
-  // 4. フィード要求（1 拍につきエージェント 1 体。agents.length 拍で一巡する）
-  if (request) {
+  // 4. フィード要求（1 回につきエージェント 1 体。true のときは agents.length 拍で一巡する）
+  if (request !== false) {
     for (const agent of world.agents) {
-      if (beat % world.agents.length !== agent.id) continue;
+      const wants =
+        request === true ? beat % world.agents.length === agent.id : agent.id === request;
+      if (!wants) continue;
       const cands = runPipeline(world, agent, params);
       world.candidates.push(...cands);
       events.spawned.push(...cands);

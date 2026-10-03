@@ -14,10 +14,10 @@ import {
   TOUR_END_BEAT,
   bpmAt,
   learningRateAt,
-  requestAt,
+  requesterAt,
   sceneIndexAt,
 } from './show/director';
-import { assignTour } from './show/tour';
+import { assignFlow, assignTour, flowRequester } from './show/tour';
 import type { Params, World } from './sim/types';
 
 function must<T extends HTMLElement>(id: string): T {
@@ -138,7 +138,6 @@ function startShow(): void {
       const scene = SCENES[sceneIndex];
       overlay.setScene(scene);
       renderer.setView(scene.view);
-      renderer.setTour(scene.step !== null);
       overlay.setBubble(null);
       overlay.setFunnel(null);
     })
@@ -158,7 +157,6 @@ function startFree(): void {
   overlay.setPausedBadge(false);
   document.body.classList.remove('show-running');
   renderer.setView(null);
-  renderer.setTour(false);
   bpm = DEFAULT_BPM;
   params.learningRate = DEFAULT_PARAMS.learningRate;
   paused = false;
@@ -301,7 +299,6 @@ function frame(ts: number): void {
       const scene = SCENES[si];
       overlay.setScene(scene);
       renderer.setView(scene.view);
-      renderer.setTour(scene.step !== null);
       overlay.setBubble(scene.showBubble ? currentBubble() : null);
       updateFunnel();
     }
@@ -336,11 +333,21 @@ function frame(ts: number): void {
       if (mode === 'show') {
         params.learningRate = learningRateAt(world.beat + 1, DEFAULT_PARAMS.learningRate);
       }
-      // 発表中は工程の紹介が終わるまで、TOUR_SPAWN_BEAT の拍に 1 回だけフィード要求する
-      const events = stepBeat(world, params, mode !== 'show' || requestAt(world.beat + 1));
-      // 紹介中に発射された候補はベルトコンベアの時刻表を付ける（renderer/audio より先に）
-      if (mode === 'show' && events.spawned.length > 0 && world.beat < TOUR_END_BEAT) {
-        assignTour(events.spawned);
+      // フィード要求: 発表中は requesterAt（紹介中は TOUR_SPAWN_BEAT の 1 回だけ、
+      // それ以降はベルトが 8 拍に 1 回分）、自由操作は flowRequester（最初の要求は 1 拍目）
+      const request =
+        mode === 'show'
+          ? requesterAt(world.beat + 1, world.agents.length) ?? false
+          : flowRequester(world.beat, world.agents.length) ?? false;
+      const events = stepBeat(world, params, request);
+      // 発射された候補はベルトコンベアの時刻表を付ける（renderer/audio より先に）。
+      // 紹介中は列に並ぶ方式、それ以降（64 拍以降と自由操作）は流し続ける方式。
+      if (events.spawned.length > 0) {
+        if (mode === 'show' && world.beat < TOUR_END_BEAT) {
+          assignTour(events.spawned);
+        } else {
+          assignFlow(events.spawned, world.beat);
+        }
       }
       // 個数の表示は、発射があった拍だけ更新してあとは前の値を出し続ける
       if (events.spawned.length > 0) {

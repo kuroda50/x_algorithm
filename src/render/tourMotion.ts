@@ -6,15 +6,16 @@
 import type { Candidate } from '../sim/types';
 import { TOPICS } from '../sim/config';
 import {
+  FLOW_MOVE,
+  FLOW_SLOT_END,
+  FLOW_SLOT_X,
   TOUR_CYCLE,
   TOUR_DIVERSITY_T0,
   TOUR_DOOR_FALL,
   TOUR_DWELL_IN,
   TOUR_DWELL_OUT,
-  TOUR_FALL,
   TOUR_FEED_T0,
   TOUR_FILTER_T0,
-  TOUR_FLY,
   TOUR_MOVE,
   TOUR_PITCH,
   TOUR_PITCH_WIDE,
@@ -83,7 +84,25 @@ const beltLeg = (t0: number, x0: number, bound: number, t: number): number =>
 
 // ベルトの上にいる間（land 以降、箱へ落ちる・発射台から飛ぶまで）の x。時刻について戻らない。
 function beltX(c: Candidate, T: TourTimes, t: number): number {
-  const { k, j, i } = c.tour!;
+  const { k, j, i, base } = c.tour!;
+  if (base !== undefined) {
+    // 流し続ける方式: ベルトは 1 拍に 1 マス進む（0.5 拍動いて 0.5 拍止まる）。
+    // v = t - base - 1.25 の小数部が 0.5 未満で動き、0.5 以上でマスに止まっている。
+    if (c.dropStage === 1 && t >= T.filter + 0.25) {
+      // プレスのあとベルトを離れて除外の扉へ（マス 4 へは行かない）
+      return lerp(TOUR_X_PRESS, TOUR_X_SCRAP, clamp01((t - T.filter - 0.25) / 0.5));
+    }
+    const v = t - base - 1.25;
+    const s = Math.floor(v);
+    const x =
+      v < 0
+        ? FLOW_SLOT_X[0]
+        : s >= FLOW_SLOT_END
+          ? FLOW_SLOT_X[FLOW_SLOT_END]
+          : lerp(FLOW_SLOT_X[s], FLOW_SLOT_X[s + 1], clamp01((v - s) / FLOW_MOVE));
+    // 落選のボールはマス 15（選抜の扉）に着いたらそこから進まない
+    return c.dropStage === 4 ? Math.min(x, TOUR_X_REJECT) : x;
+  }
   // land → フィルタの列 → プレス
   const pressDep = T.filter + TOUR_DWELL_OUT;
   if (t < pressDep) {
@@ -197,7 +216,7 @@ export function tourBallState(c: Candidate, beat: number, agentPos: P3): BallSta
 
   // パイプの口からベルトへ落ちる。x は線形、y は u² で加速。最初の 0.15 拍で育つ。
   if (beat < T.land) {
-    const u = clamp01((beat - T.emerge) / TOUR_FALL);
+    const u = clamp01((beat - T.emerge) / (T.land - T.emerge));
     const grow = smooth((beat - T.emerge) / 0.15);
     return state(
       p3(lerp(mouth.x, TOUR_X_LAND, u), lerp(mouth.y, TOUR_BELT_Y + radius, u * u), 0),
@@ -242,8 +261,9 @@ export function tourBallState(c: Candidate, beat: number, agentPos: P3): BallSta
   // 発射台からエージェントへ放物線で飛び、受け止められて縮んで消える
   if (T.launch !== null && T.catch !== null && beat >= T.launch) {
     if (beat < T.catch) {
-      const u = clamp01((beat - T.launch) / TOUR_FLY);
-      const hop = HOP_HEIGHT * TOUR_FLY * TOUR_FLY * 4 * u * (1 - u);
+      const fly = T.catch - T.launch;
+      const u = clamp01((beat - T.launch) / fly);
+      const hop = HOP_HEIGHT * fly * fly * 4 * u * (1 - u);
       return state(
         p3(
           lerp(TOUR_X_END, agentPos.x, u),

@@ -17,7 +17,15 @@ import {
   REST,
   TOUR_JAW_W,
 } from './instruments';
-import { TOUR_X_DIVERSITY, TOUR_X_REJECT, TOUR_X_SCRAP } from '../show/tour';
+import {
+  TOUR_X_BELL,
+  TOUR_X_DIVERSITY,
+  TOUR_X_END,
+  TOUR_X_PRESS,
+  TOUR_X_REJECT,
+  TOUR_X_SCORE,
+  TOUR_X_SCRAP,
+} from '../show/tour';
 import {
   AGENT_R,
   BIN_SIZE,
@@ -26,9 +34,10 @@ import {
   DISTRICT_DISC_R,
   districtPos,
   hash01,
-  PIPE_IN_MOUTH,
-  PIPE_OUT_MOUTH,
+  TOUR_BELT_Y,
   TOUR_BIN_TOP_Y,
+  TOUR_PIPE_IN_MOUTH,
+  TOUR_PIPE_OUT_MOUTH,
   VIEW_RECT,
   type P3,
 } from './stageLayout';
@@ -49,8 +58,6 @@ export interface Renderer {
   // 画面に収める範囲を変える（発表の進行でカメラを楽器に寄せる）。null で全体に戻す。
   // 切り替えは滑らかに動く。
   setView(rect: ViewRect | null): void;
-  // 工程の紹介（下の階のベルトコンベア）を表示するか。reset では変わらない。
-  setTour(on: boolean): void;
 }
 
 export interface ViewRect {
@@ -122,7 +129,6 @@ const noopRenderer: Renderer = {
   hitTestAgent: () => null,
   setSelectedAgent() {},
   setView() {},
-  setTour() {},
 };
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer {
@@ -157,13 +163,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   camera.lookAt(VIEW_CX, VIEW_CY, 0);
 
   const stage = buildStage();
+  // 上の階の楽器は出さない。下の階のベルトコンベアだけで工程を見せる
+  stage.instruments.visible = false;
   scene.add(stage.group);
 
-  // 工程の紹介のベルトコンベア（下の階）。紹介の場面だけ表示する
+  // ベルトコンベア（下の階）。常に表示する
   const tourLine = buildTourLine();
-  tourLine.group.visible = false;
   scene.add(tourLine.group);
-  let tourOn = false;
 
   // ボールと尾は 2 つの InstancedMesh で描く（塗りつぶした円と、フォロー外用の輪）
   const ballCap = BALL_CAP * (1 + TAIL_STEPS);
@@ -256,30 +262,23 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     return el;
   }
 
-  // 工程名。パイプの 2 つは口の少し上、ほかは床の下に横一列。
-  addLabel('フォロー内', () => ({ x: -15.6, y: PIPE_IN_MOUTH.y + 1.0, z: 0 }));
-  addLabel('フォロー外', () => ({ x: -15.6, y: PIPE_OUT_MOUTH.y + 1.0, z: 0 }));
-  addLabel('フィルタ', () => ({ x: -9.8, y: -1.0, z: 0 }));
-  addLabel('スコアリング', () => ({ x: 0, y: -1.0, z: 0 }));
-  addLabel('多様性調整', () => ({ x: 7.15, y: -1.0, z: 0 }));
-  addLabel('選抜', () => ({ x: 14.4, y: -1.0, z: 0 }));
-  const scrapLabel = addLabel('除外 0', () => ({ x: -5.2, y: -1.0, z: 0 }), 'count');
-  const rejectLabel = addLabel('落選 0', () => ({ x: 11.0, y: -1.0, z: 0 }), 'count');
-  // 工程の紹介の下の階の箱の下に出す個数ラベル（紹介の場面だけ表示）
+  // 下の階の工程名。パイプの 2 つは口の少し上、ほかはベルトの下に横一列。
+  addLabel('フォロー内', () => ({ x: -16.6, y: TOUR_PIPE_IN_MOUTH.y + 0.9, z: 0 }));
+  addLabel('フォロー外', () => ({ x: -16.6, y: TOUR_PIPE_OUT_MOUTH.y + 0.9, z: 0 }));
+  addLabel('フィルタ', () => ({ x: TOUR_X_PRESS, y: TOUR_BELT_Y - 1.0, z: 0 }));
+  addLabel('スコアリング', () => ({ x: TOUR_X_SCORE, y: TOUR_BELT_Y - 1.0, z: 0 }));
+  addLabel('多様性調整', () => ({ x: TOUR_X_DIVERSITY, y: TOUR_BELT_Y - 1.0, z: 0 }));
+  addLabel('選抜', () => ({ x: TOUR_X_BELL, y: TOUR_BELT_Y - 1.0, z: 0 }));
+  addLabel('フィード', () => ({ x: TOUR_X_END, y: TOUR_BELT_Y - 1.0, z: 0 }));
+  // 下の階の箱の下に出す個数ラベル
   const tourScrapLabel = addLabel(
     '除外 0',
-    () =>
-      tourOn
-        ? { x: TOUR_X_SCRAP, y: TOUR_BIN_TOP_Y - BIN_SIZE.h - 0.5, z: 0 }
-        : null,
+    () => ({ x: TOUR_X_SCRAP, y: TOUR_BIN_TOP_Y - BIN_SIZE.h - 0.5, z: 0 }),
     'count',
   );
   const tourRejectLabel = addLabel(
     '落選 0',
-    () =>
-      tourOn
-        ? { x: TOUR_X_REJECT, y: TOUR_BIN_TOP_Y - BIN_SIZE.h - 0.5, z: 0 }
-        : null,
+    () => ({ x: TOUR_X_REJECT, y: TOUR_BIN_TOP_Y - BIN_SIZE.h - 0.5, z: 0 }),
     'count',
   );
   TOPICS.forEach((t, i) => {
@@ -693,10 +692,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     camera.updateProjectionMatrix();
   }
 
-  // 工程の紹介のベルトコンベアの機械を、ボールの時刻に合わせて動かす。
-  // tourLine が隠れている間は何もしない。
+  // ベルトコンベアの機械を、ボールの時刻に合わせて動かす。
   function applyTourMachines(world: World, beat: number): void {
-    if (!tourOn) return;
     const tm = tourMachines(world.candidates, beat);
     // プレス: 当たった瞬間にボールの上端まで降りる。除外のボールに当たるとヘッドが黒くなる
     tourLine.press.group.position.y = tourLine.press.restY - tourLine.press.travel * tm.press;
@@ -742,8 +739,6 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       timeSec = 0;
       scrapCount = 0;
       rejectCount = 0;
-      scrapLabel.textContent = '除外 0';
-      rejectLabel.textContent = '落選 0';
       tourScrapLabel.textContent = '除外 0';
       tourRejectLabel.textContent = '落選 0';
     },
@@ -754,8 +749,6 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         else if (c.dropStage === 4) rejectCount++;
       }
       if (events.dropped.length > 0) {
-        scrapLabel.textContent = `除外 ${scrapCount}`;
-        rejectLabel.textContent = `落選 ${rejectCount}`;
         tourScrapLabel.textContent = `除外 ${scrapCount}`;
         tourRejectLabel.textContent = `落選 ${rejectCount}`;
       }
@@ -825,10 +818,6 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
             h: rect.y1 - rect.y0,
           }
         : { ...FULL_VIEW };
-    },
-    setTour(on) {
-      tourOn = on;
-      tourLine.group.visible = on;
     },
   };
 }

@@ -37,17 +37,18 @@ export const SELECT_K = 3;
 export const IN_RECENT_POOL = 16; // フォロー内は、新しいこの件数の中から興味に近いものを選ぶ
 export const RETRIEVAL_NOISE = 0.15; // 候補取得の順位に足すゆらぎ
 
-// 反応 1 回で、その話題の興味が何割増えるか（learningRate に掛ける）
-export const LEARN_LIKE = 0.2;
-export const LEARN_REPOST = 0.3;
-export const LEARN_REPLY = 0.4;
-export const LEARN_IGNORE = 0.06; // 反応が 1 つもないときに減らす割合
+// 反応 1 回で、その話題の興味が何割増えるか（learningRate に掛ける）。
+// ベルトで 1 個ずつ処理すると届く件数が少ないので、1 回の効きを強くしてある
+export const LEARN_LIKE = 2.4;
+export const LEARN_REPOST = 3.6;
+export const LEARN_REPLY = 4.8;
+export const LEARN_IGNORE = 0.72; // 反応が 1 つもないときに減らす割合
 export const FOLLOW_RATE = 0.3; // フォロー外にリプライ・リポストしたときにフォローする確率
 
 export const PIPELINE_BEATS = 5; // 発射からエージェントが受け止めるまでの拍数
 
 export const FEED_KEEP = 20;
-export const METRICS_MIN_FEED = 6; // フィードがこの件数に満たないエージェントは指標に含めない
+export const METRICS_MIN_FEED = 3; // フィードがこの件数に満たないエージェントは指標に含めない
 export const METRICS_KEEP = 240;
 
 export const DEFAULT_PARAMS: Params = {
@@ -59,7 +60,7 @@ export const DEFAULT_PARAMS: Params = {
   learningRate: 0.16,
 };
 
-export const DEFAULT_BPM = 110;
+export const DEFAULT_BPM = 90;
 
 // エージェントごとの色。Canvas と DOM の両方で同じ色を使う。
 export function agentColor(index: number, total: number): string {

@@ -92,7 +92,7 @@ export function districtPos(i: number, n: number): P3 {
 }
 
 // 画面に必ず収める範囲。OrthographicCamera がこの矩形を contain する。
-export const VIEW_RECT = { x0: -17.5, x1: 28.5, y0: -4.5, y1: 16 };
+export const VIEW_RECT = { x0: -18, x1: 31, y0: -19, y1: 15.5 }; // 下は字幕の分を空ける
 
 // --- ボールの演出の定数。trajectory.ts（合奏）と tourMotion.ts（工程の紹介）の両方が使う ---
 export const HOP_HEIGHT = 3.0; // 1 拍の区間で跳ねたときの最高到達点

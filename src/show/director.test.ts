@@ -7,12 +7,12 @@ import {
   TOUR_END_BEAT,
   bpmAt,
   learningRateAt,
-  requestAt,
+  requesterAt,
   sceneAt,
   sceneIndexAt,
   showSeconds,
 } from './director';
-import { TOUR_SPAWN_BEAT } from './tour';
+import { FLOW_BATCH_BEATS, TOUR_SPAWN_BEAT } from './tour';
 
 describe('SCENES', () => {
   it('startBeat の昇順で、最初が 0、最後が SHOW_END_BEAT より前', () => {
@@ -71,24 +71,27 @@ describe('learningRateAt', () => {
   });
 });
 
-describe('requestAt', () => {
-  it('工程の紹介中は TOUR_SPAWN_BEAT の拍だけフィード要求する', () => {
-    expect(requestAt(TOUR_SPAWN_BEAT)).toBe(true);
-    expect(requestAt(1)).toBe(false);
-    expect(requestAt(TOUR_SPAWN_BEAT - 1)).toBe(false);
-    expect(requestAt(TOUR_SPAWN_BEAT + 1)).toBe(false);
-    expect(requestAt(63)).toBe(false);
+describe('requesterAt', () => {
+  it('工程の紹介中は TOUR_SPAWN_BEAT の拍だけ、beat % agentCount のエージェントが要求する', () => {
+    expect(requesterAt(TOUR_SPAWN_BEAT, 8)).toBe(TOUR_SPAWN_BEAT % 8);
+    expect(requesterAt(1, 8)).toBeNull();
+    expect(requesterAt(TOUR_SPAWN_BEAT - 1, 8)).toBeNull();
+    expect(requesterAt(TOUR_SPAWN_BEAT + 1, 8)).toBeNull();
+    expect(requesterAt(63, 8)).toBeNull();
   });
 
-  it('TOUR_END_BEAT 以降は毎拍要求する', () => {
-    expect(requestAt(TOUR_END_BEAT)).toBe(true);
-    expect(requestAt(TOUR_END_BEAT + 1)).toBe(true);
+  it('TOUR_END_BEAT 以降は FLOW_BATCH_BEATS 拍おきにエージェントが順に要求する', () => {
+    expect(requesterAt(TOUR_END_BEAT, 8)).toBe(0);
+    expect(requesterAt(TOUR_END_BEAT + 1, 8)).toBeNull();
+    expect(requesterAt(TOUR_END_BEAT + FLOW_BATCH_BEATS - 1, 8)).toBeNull();
+    expect(requesterAt(TOUR_END_BEAT + FLOW_BATCH_BEATS, 8)).toBe(1);
+    expect(requesterAt(TOUR_END_BEAT + 8 * FLOW_BATCH_BEATS, 8)).toBe(0);
   });
 });
 
 describe('showSeconds', () => {
-  it('160〜178 秒（3 分の発表に収まる）', () => {
-    expect(showSeconds()).toBeGreaterThanOrEqual(160);
-    expect(showSeconds()).toBeLessThanOrEqual(178);
+  it('115〜125 秒（2 分の発表）', () => {
+    expect(showSeconds()).toBeGreaterThanOrEqual(115);
+    expect(showSeconds()).toBeLessThanOrEqual(125);
   });
 });

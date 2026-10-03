@@ -92,6 +92,7 @@ export interface Pipe {
 }
 export interface Stage {
   group: THREE.Group;
+  instruments: THREE.Group; // 上の階の楽器（床の線・パイプ・ドラム・プレス…）。まとめて隠せる
   bgRings: THREE.Mesh[]; // 拍で拡大する背景の輪
   drums: DrumPad[];
   vibeBars: VibeBar[];
@@ -241,11 +242,15 @@ export function buildAgent(): { group: THREE.Group; mat: THREE.MeshBasicMaterial
 }
 
 // 床・地区・楽器をまとめて作る。返す Stage の各部品は renderer が pulse で動かす。
+// 上の階の楽器（床の線・発射パイプ・ドラム・プレス・箱・ビブラフォン・ベース弦・ベル・
+// 落選の扉）は instruments グループに入れ、背景の輪と話題の地区は group の直下に置く。
 export function buildStage(): Stage {
   const group = new THREE.Group();
+  const instruments = new THREE.Group();
+  group.add(instruments);
 
   // 床の線（y = 0 の細い横線。x は -40 から 17 まで）
-  group.add(rect(57, STROKE, inkMat, -11.5, 0));
+  instruments.add(rect(57, STROKE, inkMat, -11.5, 0));
 
   // 背景の大きな輪。拍で少し拡大する。
   const bgRings: THREE.Mesh[] = [];
@@ -280,23 +285,23 @@ export function buildStage(): Stage {
 
   // 発射パイプ（フォロー内は淡い塗り、フォロー外は中空）
   const pipes = [buildPipe(PIPE_IN_MOUTH, false), buildPipe(PIPE_OUT_MOUTH, true)];
-  for (const p of pipes) group.add(p.group);
+  for (const p of pipes) instruments.add(p.group);
 
   // フィルタのドラム（宙に浮かせる。支柱はつけない）
   const drums = DRUM_HITS.map((_, i) => buildDrum(i));
-  for (const d of drums) group.add(d.group);
+  for (const d of drums) instruments.add(d.group);
 
   // プレス機（CYMBAL_POS の真上から叩き落とす）
   const press = buildPress();
-  group.add(press.group);
+  instruments.add(press.group);
 
   // 除外箱 / 落選箱
   const scrapBin = openBin(inkMat);
   scrapBin.position.set(SCRAP_BIN.x, 0, 0);
-  group.add(scrapBin);
+  instruments.add(scrapBin);
   const rejectBin = openBin(inkMat);
   rejectBin.position.set(REJECT_BIN.x, 0, 0);
-  group.add(rejectBin);
+  instruments.add(rejectBin);
 
   // ビブラフォン（床からの柱＋鍵盤の棒グラフ状の階段）
   const vibeBars: VibeBar[] = [];
@@ -305,11 +310,11 @@ export function buildStage(): Stage {
     const pillarH = hit.y - VIBE_BAR_T;
     const pillar = strokeRect(VIBE_BAR_LEN, pillarH, paperMat);
     pillar.position.set(hit.x, pillarH / 2, -0.01);
-    group.add(pillar);
+    instruments.add(pillar);
     const mat = basic(PAPER);
     const bar = strokeRect(VIBE_BAR_LEN, VIBE_BAR_T, mat);
     bar.position.set(hit.x, hit.y - VIBE_BAR_T / 2);
-    group.add(bar);
+    instruments.add(bar);
     vibeBars.push({ mesh: bar, mat, restY: bar.position.y });
   }
 
@@ -318,11 +323,11 @@ export function buildStage(): Stage {
   for (let i = 0; i < 4; i++) {
     const hit = bassStringHit(i);
     for (const s of [-1, 1]) {
-      group.add(rect(STROKE, hit.y, hairMat, hit.x + (s * BASS_STRING_LEN) / 2, hit.y / 2, -0.01));
+      instruments.add(rect(STROKE, hit.y, hairMat, hit.x + (s * BASS_STRING_LEN) / 2, hit.y / 2, -0.01));
     }
     const mat = basic(REST);
     const str = rect(BASS_STRING_LEN, STROKE, mat, hit.x, hit.y);
-    group.add(str);
+    instruments.add(str);
     bassStrings.push({ mesh: str, mat, restY: hit.y });
   }
 
@@ -331,7 +336,7 @@ export function buildStage(): Stage {
   for (let i = 0; i < 3; i++) {
     const hit = bellHit(i);
     const cy = hit.y - BELL_R; // 頂点が打点
-    group.add(rect(STROKE, cy, inkMat, hit.x, cy / 2, -0.01));
+    instruments.add(rect(STROKE, cy, inkMat, hit.x, cy / 2, -0.01));
     const mat = basic(PAPER);
     const bell = new THREE.Group();
     // 弧（半分の輪）と底辺が輪郭、内側が塗り
@@ -344,16 +349,17 @@ export function buildStage(): Stage {
     bell.add(arc);
     bell.add(rect(2 * BELL_R, STROKE, inkMat, 0, 0, 0.01));
     bell.position.set(hit.x, cy, 0);
-    group.add(bell);
+    instruments.add(bell);
     bells.push({ mesh: bell, mat });
   }
 
   // 落選の床の扉
   const trapDoor = buildTrapDoor(TRAP_RIM.x, TRAP_RIM.y);
-  group.add(trapDoor.hinge);
+  instruments.add(trapDoor.hinge);
 
   return {
     group,
+    instruments,
     bgRings,
     drums,
     vibeBars,
