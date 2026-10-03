@@ -5,17 +5,29 @@ import type { Candidate } from '../sim/types';
 import { TOPICS } from '../sim/config';
 import { timeline } from '../show/score';
 import { clamp01, hitPoint, p3, type P3 } from './stageLayout';
+import { tourBallState } from './tourMotion';
 
-export const HOP_HEIGHT = 3.0; // 1 拍の区間で跳ねたときの最高到達点
-export const BALL_R = 0.34; // 基準の半径
-export const TAIL_STEPS = 8; // 尾の数
+export {
+  BALL_R,
+  DROPPED_COLOR,
+  HOP_HEIGHT,
+  SIZE_BLEND,
+  SQUASH_BEATS,
+  VANISH_BIN,
+  VANISH_CATCH,
+} from './stageLayout';
+import {
+  BALL_R,
+  DROPPED_COLOR,
+  HOP_HEIGHT,
+  SIZE_BLEND,
+  SQUASH_BEATS,
+  VANISH_BIN,
+  VANISH_CATCH,
+} from './stageLayout';
+
+export const TAIL_STEPS = 5; // 尾の数
 export const TAIL_DT = 0.016; // 尾 1 つ分の時間差（ビート）
-export const VANISH_CATCH = 0.25; // 受け止められて縮んで消えるまでのビート数
-export const VANISH_BIN = 0.3; // 箱に落ちて消えるまでのビート数
-export const SIZE_BLEND = 0.15; // 大きさが切り替わるまでのビート数
-export const SQUASH_BEATS = 0.12; // 当たった直後に伸び縮みするビート数
-
-export const DROPPED_COLOR = '#6b7080'; // 除外・落選したあとの色（色は話題だけに使う）
 
 export interface BallState {
   pos: P3;
@@ -24,6 +36,7 @@ export interface BallState {
   color: string;
   squash: number; // 0..1。当たった直後は 1 に近く、横に伸びて縦に潰す
   hollow: boolean; // フォロー外のボールは輪として描く
+  crossed: boolean; // 落とされた印。cymbal / trap の打点以降は true（描画で × を重ねる）
   visible: boolean;
 }
 
@@ -35,6 +48,8 @@ const smooth = (u: number): number => {
 
 // ボール 1 個の今の状態。beat は小数のビート位置、agentPos は捕まえるエージェントの円の今の位置。
 export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
+  // 工程の紹介で流すボールはベルトコンベアの動き（render/tourMotion.ts）で決める
+  if (c.tour) return tourBallState(c, beat, agentPos);
   const hits = timeline(c);
   const first = hits[0];
   const base: BallState = {
@@ -44,6 +59,7 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
     color: TOPICS[c.topic].color,
     squash: 0,
     hollow: c.source === 'out',
+    crossed: false,
     visible: false,
   };
   if (!Number.isFinite(beat) || beat < first.time) return base;
@@ -60,11 +76,14 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
     }
   }
 
-  // 色: 話題の色。フィルタで弾かれたあと・落選したあとは灰色。
+  // 色: 話題の色。フィルタで弾かれたあと・落選したあとは灰色で、× の印が付く。
   let color = base.color;
+  let crossed = false;
   for (const h of hits) {
-    if (h.kind === 'cymbal' && beat >= h.time) color = DROPPED_COLOR;
-    if (h.kind === 'trap' && beat >= h.time) color = DROPPED_COLOR;
+    if ((h.kind === 'cymbal' || h.kind === 'trap') && beat >= h.time) {
+      color = DROPPED_COLOR;
+      crossed = true;
+    }
   }
 
   // 伸び縮み: launch 以外の Hit に当たった直後 SQUASH_BEATS 拍のあいだ 1 → 0。
@@ -82,6 +101,7 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
     color,
     squash,
     hollow: base.hollow,
+    crossed,
     visible,
   });
 
@@ -110,9 +130,15 @@ export function ballState(c: Candidate, beat: number, agentPos: P3): BallState {
   const P1 = hitPoint(h1, c, agentPos);
   // 放物線: 区間の両端でちょうど打点（u=0,1 で高さ 0）、中央で HOP_HEIGHT * dur²。
   // dur² に比例させるので、半拍の跳ねは 1/4 の高さ = 重力が一定に見える。
-  const hop = HOP_HEIGHT * dur * dur * 4 * u * (1 - u);
+  // ただし cymbal→scrap（プレスで叩き落とされる）と trap→reject（扉が開いて落ちる）は
+  // 跳ねずに真っすぐ落ちる。x は線形、y は u² で最初ゆっくり・あとで速く。
+  const falls =
+    (h0.kind === 'cymbal' && h1.kind === 'scrap') ||
+    (h0.kind === 'trap' && h1.kind === 'reject');
+  const hop = falls ? 0 : HOP_HEIGHT * dur * dur * 4 * u * (1 - u);
+  const uy = falls ? u * u : u;
   return state(
-    p3(lerp(P0.x, P1.x, u), lerp(P0.y, P1.y, u) + hop, lerp(P0.z, P1.z, u)),
+    p3(lerp(P0.x, P1.x, u), lerp(P0.y, P1.y, uy) + hop, lerp(P0.z, P1.z, u)),
     BALL_R * scale,
     1,
     true,

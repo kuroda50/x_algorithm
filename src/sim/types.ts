@@ -81,6 +81,17 @@ export interface Candidate {
   rank: number; // 選抜での順位（adjusted の大きい順、0 始まり）。フィルタで落ちたものは -1
   dropStage: 1 | 4 | null; // 1:フィルタで除外 4:選抜で落選 null:フィードに届く
   dropReason: 'bad' | 'old' | 'rank' | null;
+  // 工程の紹介で流すボールの印。show/tour.ts の assignTour / assignFlow が付ける。
+  tour?: {
+    k: number; // この回の中での順番 0..n-1（パイプから出る順）
+    j: number; // フィルタを通過したものの中での順番 0..。フィルタで落ちたものは -1
+    i: number; // 選抜を通過したものの中での順番 0..。それ以外は -1
+    // 流し続ける方式（デモ・自由操作）のとき、パイプから出る拍（整数）。
+    // 省略時は紹介の方式（工程ごとに列に並ぶ）。
+    base?: number;
+  };
+  // 届く・落ちる出来事が起きる拍（整数）。省略時は今までどおり startBeat から決める。
+  doneBeat?: number;
 }
 
 export interface Params {

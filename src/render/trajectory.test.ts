@@ -72,6 +72,49 @@ describe('ballState', () => {
     }
   });
 
+  it('cymbal→scrap と trap→reject は跳ねずに加速して真っすぐ落ちる', () => {
+    const dropped = mkCand({ dropStage: 1, dropReason: 'bad' });
+    const hits = timeline(dropped);
+    const cym = hits.find((h) => h.kind === 'cymbal')!;
+    const scr = hits.find((h) => h.kind === 'scrap')!;
+    const t = (cym.time + scr.time) / 2;
+    const s = ballState(dropped, t, AGENT);
+    const p0 = hitPoint(cym, dropped, AGENT);
+    const p1 = hitPoint(scr, dropped, AGENT);
+    expect(s.pos.x).toBeCloseTo((p0.x + p1.x) / 2, 6);
+    // y は u²（u=0.5 → 0.25）。直線の中点より上 = 最初ゆっくり落ちる
+    expect(s.pos.y).toBeCloseTo(p0.y + (p1.y - p0.y) * 0.25, 6);
+
+    const rejected = mkCand({ dropStage: 4, dropReason: 'rank', rank: 3 });
+    const rhits = timeline(rejected);
+    const trap = rhits.find((h) => h.kind === 'trap')!;
+    const rej = rhits.find((h) => h.kind === 'reject')!;
+    const rt = (trap.time + rej.time) / 2;
+    const rs = ballState(rejected, rt, AGENT);
+    const q0 = hitPoint(trap, rejected, AGENT);
+    const q1 = hitPoint(rej, rejected, AGENT);
+    expect(rs.pos.x).toBeCloseTo((q0.x + q1.x) / 2, 6);
+    expect(rs.pos.y).toBeCloseTo(q0.y + (q1.y - q0.y) * 0.25, 6);
+  });
+
+  it('cymbal / trap の打点以降は crossed が立つ', () => {
+    const dropped = mkCand({ dropStage: 1, dropReason: 'bad' });
+    const cym = timeline(dropped).find((h) => h.kind === 'cymbal')!.time;
+    expect(ballState(dropped, cym - 0.01, AGENT).crossed).toBe(false);
+    expect(ballState(dropped, cym, AGENT).crossed).toBe(true);
+    expect(ballState(dropped, cym + 0.4, AGENT).crossed).toBe(true);
+
+    const rejected = mkCand({ dropStage: 4, dropReason: 'rank', rank: 3 });
+    const trap = timeline(rejected).find((h) => h.kind === 'trap')!.time;
+    expect(ballState(rejected, trap - 0.01, AGENT).crossed).toBe(false);
+    expect(ballState(rejected, trap, AGENT).crossed).toBe(true);
+
+    // 届くボールは最後まで crossed にならない
+    const ok = mkCand();
+    const end = timeline(ok)[timeline(ok).length - 1].time;
+    expect(ballState(ok, end + 0.1, AGENT).crossed).toBe(false);
+  });
+
   it('catch のあと 0.25 拍で縮んで消える', () => {
     const c = mkCand();
     const hits = timeline(c);

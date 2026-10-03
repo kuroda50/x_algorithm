@@ -84,7 +84,7 @@ export function createChart(el: HTMLElement): Chart {
     const plotW = w - PAD_L - PAD_R;
     const plotH = h - PAD_T - PAD_B;
     const textCol = cssVar('--text-muted', '#888');
-    const gridCol = cssVar('--border', '#ddd');
+    const gridCol = cssVar('--grid', '#d9d9d9');
     const yFor = (v: number) => PAD_T + (1 - v) * plotH;
 
     ctx.font = '11px sans-serif';
