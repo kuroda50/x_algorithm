@@ -62,10 +62,13 @@ export interface Bell {
   mesh: THREE.Object3D; // 半円（膨らむ）
   mat: THREE.MeshBasicMaterial;
 }
-export interface Bar {
-  mesh: THREE.Mesh;
-  mat: THREE.MeshBasicMaterial;
-  baseRot: number;
+export interface Press {
+  group: THREE.Group; // 軸とヘッドをまとめて上下に動かす
+  headMat: THREE.MeshBasicMaterial; // ヘッドの塗り（当たった瞬間に黒くなる）
+  restY: number; // ふだんの y（pulse / anticip でここから動かす）
+}
+export interface TrapDoor {
+  hinge: THREE.Group; // 左端の蝶番。回転で開閉する
 }
 export interface Pipe {
   group: THREE.Group; // 発射の反動で少し左へ
@@ -78,8 +81,8 @@ export interface Stage {
   vibeBars: VibeBar[];
   bassStrings: BassString[];
   bells: Bell[];
-  cymbalBar: Bar;
-  trapBar: Bar;
+  press: Press;
+  trapDoor: TrapDoor;
   pipes: Pipe[]; // [フォロー内, フォロー外]
   scrapBin: THREE.Group;
   rejectBin: THREE.Group;
@@ -174,14 +177,40 @@ function buildDrum(i: number): DrumPad {
   return { group: g, mat, kick: i === 0 };
 }
 
-// 傾いた棒（除外バー / 落選バー）。当たると光って揺れる。
-function buildBar(px: P3, len: number, rot: number): { group: THREE.Group; bar: Bar } {
+// フィルタのプレス機。CYMBAL_POS の真上に、画面の上の外まで伸びる軸と下端の横長ヘッド。
+// ふだんはヘッドの下面が打点の PRESS_CLEAR だけ上で待ち、当たった瞬間に打点まで降りる。
+const PRESS_HEAD_W = 1.6;
+const PRESS_HEAD_H = 0.45;
+const PRESS_SHAFT_W = 0.3;
+const PRESS_TOP_Y = 22; // 軸の上端（画面の上の外まで伸ばす）
+const PRESS_CLEAR = 0.9; // ふだんヘッドの下面が打点の上に浮く距離
+
+function buildPress(): Press {
+  const restY = CYMBAL_POS.y + PRESS_CLEAR;
   const g = new THREE.Group();
-  const mat = basic(REST);
-  const mesh = rect(len, STROKE, mat, px.x, px.y, 0);
-  mesh.rotation.z = rot;
-  g.add(mesh);
-  return { group: g, bar: { mesh, mat, baseRot: rot } };
+  const headMat = basic(PAPER);
+  const head = strokeRect(PRESS_HEAD_W, PRESS_HEAD_H, headMat);
+  head.position.set(0, PRESS_HEAD_H / 2, 0.01); // 下面が group の原点
+  g.add(head);
+  const shaftTop = PRESS_TOP_Y - restY; // group の原点から軸の上端まで
+  const shaft = strokeRect(PRESS_SHAFT_W, shaftTop - PRESS_HEAD_H, paperMat);
+  shaft.position.set(0, (PRESS_HEAD_H + shaftTop) / 2, -0.01);
+  g.add(shaft);
+  g.position.set(CYMBAL_POS.x, restY, 0);
+  return { group: g, headMat, restY };
+}
+
+// 選抜の床の扉。TRAP_RIM を上面の中心とする水平の板を、左端の蝶番まわりに回して開く。
+const TRAP_DOOR_W = 1.4;
+const TRAP_DOOR_T = 0.14;
+function buildTrapDoor(): TrapDoor {
+  const hinge = new THREE.Group();
+  hinge.position.set(TRAP_RIM.x - TRAP_DOOR_W / 2, TRAP_RIM.y - TRAP_DOOR_T / 2, 0);
+  hinge.add(rect(TRAP_DOOR_W, TRAP_DOOR_T, inkMat, TRAP_DOOR_W / 2, 0));
+  const pin = strokeCircle(0.12, paperMat); // 蝶番の輪
+  pin.position.z = 0.01;
+  hinge.add(pin);
+  return { hinge };
 }
 
 // エージェントの円（白い塗り + INK の輪郭）。group の原点は円の中心。
@@ -241,11 +270,9 @@ export function buildStage(): Stage {
   const drums = DRUM_HITS.map((_, i) => buildDrum(i));
   for (const d of drums) group.add(d.group);
 
-  // 除外バー（傾いた棒＋画面外まで伸びる吊り線）
-  const cymbal = buildBar(CYMBAL_POS, 1.8, -0.35);
-  group.add(cymbal.group);
-  const wireH = 12;
-  group.add(rect(STROKE, wireH, hairMat, CYMBAL_POS.x, CYMBAL_POS.y + wireH / 2, -0.01));
+  // プレス機（CYMBAL_POS の真上から叩き落とす）
+  const press = buildPress();
+  group.add(press.group);
 
   // 除外箱 / 落選箱
   const scrapBin = openBin(inkMat);
@@ -305,9 +332,9 @@ export function buildStage(): Stage {
     bells.push({ mesh: bell, mat });
   }
 
-  // 落選バー
-  const trap = buildBar(TRAP_RIM, 1.4, -0.6);
-  group.add(trap.group);
+  // 落選の床の扉
+  const trapDoor = buildTrapDoor();
+  group.add(trapDoor.hinge);
 
   return {
     group,
@@ -316,8 +343,8 @@ export function buildStage(): Stage {
     vibeBars,
     bassStrings,
     bells,
-    cymbalBar: cymbal.bar,
-    trapBar: trap.bar,
+    press,
+    trapDoor,
     pipes,
     scrapBin,
     rejectBin,

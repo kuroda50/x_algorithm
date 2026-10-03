@@ -275,6 +275,47 @@
   -webkit-box-decoration-break: clone;
 }
 
+/* --- 個数の表示（字幕の下の 1 行） --- */
+
+.show-funnel {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  background: #ffffff;
+  padding: 0.2em 0.6em;
+}
+
+.show-funnel-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+}
+
+.show-funnel-label {
+  font-size: clamp(15px, 1.6vw, 24px);
+  font-weight: 700;
+  color: #6f6f6f;
+}
+
+.show-funnel-num {
+  font-size: clamp(24px, 2.8vw, 42px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: #111111;
+}
+
+.show-funnel-num.active {
+  background: #111111;
+  color: #ffffff;
+  padding: 0 0.3em;
+}
+
+.show-funnel-arrow {
+  font-size: clamp(14px, 1.5vw, 22px);
+  color: #6f6f6f;
+}
+
 /* --- 上中央: 工程の進み具合 + 一時停止の表示 --- */
 
 .show-top {

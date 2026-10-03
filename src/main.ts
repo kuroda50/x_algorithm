@@ -13,6 +13,7 @@ import {
   SHOW_SEED,
   bpmAt,
   learningRateAt,
+  requestAt,
   sceneIndexAt,
 } from './show/director';
 import type { Params, World } from './sim/types';
@@ -45,6 +46,8 @@ type Mode = 'title' | 'show' | 'ending' | 'free';
 let mode: Mode = 'title';
 let sceneIndex = -1; // 出している場面の添字（-1: なし）
 let skipUntil: number | null = null; // → で飛ばしている先の拍。追いつくまで stepBeat だけ回す
+// 字幕に出す個数。いちばん最近に発射された 1 回分を、次の発射まで出し続ける
+let funnelBatch: { launched: number; passed: number; selected: number } | null = null;
 
 const feedPanel = createFeedPanel(must<HTMLElement>('feed-panel'), (id) => selectAgent(id));
 const chart = createChart(must<HTMLElement>('chart-panel'));
@@ -126,12 +129,14 @@ function startShow(): void {
       controls.setPaused(false);
       overlay.setPausedBadge(false);
       skipUntil = null;
+      funnelBatch = null;
       sceneIndex = sceneIndexAt(beat);
       document.body.classList.add('show-running');
       const scene = SCENES[sceneIndex];
       overlay.setScene(scene);
       renderer.setView(scene.view);
       overlay.setBubble(null);
+      overlay.setFunnel(null);
     })
     .then(() => {
       mode = 'show';
@@ -145,6 +150,7 @@ function startFree(): void {
   overlay.hideEnding();
   overlay.setScene(null);
   overlay.setBubble(null);
+  overlay.setFunnel(null);
   overlay.setPausedBadge(false);
   document.body.classList.remove('show-running');
   renderer.setView(null);
@@ -156,12 +162,25 @@ function startFree(): void {
   controls.setSoundOn(false);
   skipUntil = null;
   sceneIndex = -1;
+  funnelBatch = null;
   resetWorld();
 }
 
 function currentBubble(): number {
   const m = world.metrics;
   return m.length > 0 ? m[m.length - 1].bubble : 0;
+}
+
+// 工程 1〜5 の場面のあいだ、いちばん最近の発射分の個数を字幕に出す。
+// active は場面の step で決める（1: 集めた、2: 通過、5: 届く。3・4 は強調なし）。
+function updateFunnel(): void {
+  const step = mode === 'show' && sceneIndex >= 0 ? SCENES[sceneIndex].step : null;
+  if (funnelBatch === null || step === null || step < 1 || step > 5) {
+    overlay.setFunnel(null);
+    return;
+  }
+  const active = step === 1 ? 0 : step === 2 ? 1 : step === 5 ? 2 : null;
+  overlay.setFunnel({ ...funnelBatch, active });
 }
 
 // 発表の進行中だけ効くキー操作。入力欄にフォーカスがあるときは無視する。
@@ -224,12 +243,14 @@ function frame(ts: number): void {
       overlay.setScene(scene);
       renderer.setView(scene.view);
       overlay.setBubble(scene.showBubble ? currentBubble() : null);
+      updateFunnel();
     }
     if (beat >= SHOW_END_BEAT) {
       mode = 'ending';
       void overlay.shutter(() => {
         overlay.setScene(null);
         overlay.setBubble(null);
+        overlay.setFunnel(null);
         overlay.showEnding();
         audio.setEnabled(false);
         controls.setSoundOn(false);
@@ -248,7 +269,17 @@ function frame(ts: number): void {
       if (mode === 'show') {
         params.learningRate = learningRateAt(world.beat + 1, DEFAULT_PARAMS.learningRate);
       }
-      const events = stepBeat(world, params);
+      // 発表中は工程の紹介が終わるまで 4 拍に 1 回だけフィード要求する（飛ばし中も同じ判定）
+      const events = stepBeat(world, params, mode !== 'show' || requestAt(world.beat + 1));
+      // 個数の表示は、発射があった拍だけ更新してあとは前の値を出し続ける
+      if (events.spawned.length > 0) {
+        funnelBatch = {
+          launched: events.spawned.length,
+          passed: events.spawned.filter((c) => c.dropStage !== 1).length,
+          selected: events.spawned.filter((c) => c.dropStage === null).length,
+        };
+        updateFunnel();
+      }
       if (!skipping) {
         renderer.onBeat(world, events);
         audio.onBeat(world, events, bpm, (beat - world.beat) * (60 / bpm));

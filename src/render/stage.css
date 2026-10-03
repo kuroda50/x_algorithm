@@ -26,6 +26,12 @@
   color: #9a9a9a;
 }
 
+/* 箱に落ちた個数つきのラベル。dim より濃くして落とされたことを目立たせる */
+.stage-label.count {
+  color: #111111;
+  font-variant-numeric: tabular-nums;
+}
+
 .stage-label.topic {
   /* 色は JS から話題の色を入れる */
   font-size: 11px;

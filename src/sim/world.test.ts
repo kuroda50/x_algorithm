@@ -69,6 +69,16 @@ describe('フィード要求', () => {
     }
     expect(seen.size).toBe(world.agents.length);
   });
+
+  it('request=false のビートはフィード要求を行わない（ほかの処理は動く）', () => {
+    const world = createWorld(1, 6);
+    const quiet = stepBeat(world, DEFAULT_PARAMS, false);
+    expect(quiet.spawned).toHaveLength(0);
+    const postsBefore = world.stats.posts;
+    expect(postsBefore).toBeGreaterThan(0); // 投稿の生成は止まらない
+    const next = stepBeat(world, DEFAULT_PARAMS);
+    expect(next.spawned.length).toBeGreaterThan(0);
+  });
 });
 
 describe('候補の掃除', () => {

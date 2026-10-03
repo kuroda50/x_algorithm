@@ -137,6 +137,15 @@ export const SHOW_END_BEAT = 360; // この拍で発表を終えて締めの画�
 export const LEARN_START_BEAT = 96; // これより前は興味を動かさない（全員が白いまま）
 export const SHOW_SEED = 3; // 発表用の世界の乱数シード（毎回同じ展開にする）
 export const STEP_COUNT = 6; // 紹介する工程の数
+export const TOUR_END_BEAT = 96; // 工程の紹介が終わる拍（ensemble の startBeat と同じ）
+export const TOUR_REQUEST_EVERY = 4; // 紹介中は何拍に 1 回フィード要求するか
+
+// ビート beat（整数。stepBeat がこれから処理する拍）でフィード要求をするか。
+// 紹介中は (beat - 1) % TOUR_REQUEST_EVERY === 0 の拍だけ。TOUR_END_BEAT 以降は毎拍。
+export function requestAt(beat: number): boolean {
+  if (beat >= TOUR_END_BEAT) return true;
+  return (beat - 1) % TOUR_REQUEST_EVERY === 0;
+}
 
 // beat にいる場面の SCENES の添字。範囲外は端に丸める（負は 0、終了後は最後）。
 export function sceneIndexAt(beat: number): number {

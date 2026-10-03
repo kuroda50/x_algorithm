@@ -4,8 +4,10 @@ import {
   SCENES,
   SHOW_END_BEAT,
   STEP_COUNT,
+  TOUR_END_BEAT,
   bpmAt,
   learningRateAt,
+  requestAt,
   sceneAt,
   sceneIndexAt,
   showSeconds,
@@ -65,6 +67,20 @@ describe('learningRateAt', () => {
     expect(learningRateAt(LEARN_START_BEAT - 0.1, 0.16)).toBe(0);
     expect(learningRateAt(LEARN_START_BEAT, 0.16)).toBe(0.16);
     expect(learningRateAt(0, 0.16)).toBe(0);
+  });
+});
+
+describe('requestAt', () => {
+  it('工程の紹介中は 4 拍に 1 回だけフィード要求する', () => {
+    expect(requestAt(1)).toBe(true);
+    expect(requestAt(5)).toBe(true);
+    expect(requestAt(2)).toBe(false);
+    expect(requestAt(95)).toBe(false);
+  });
+
+  it('TOUR_END_BEAT 以降は毎拍要求する', () => {
+    expect(requestAt(TOUR_END_BEAT)).toBe(true);
+    expect(requestAt(TOUR_END_BEAT + 1)).toBe(true);
   });
 });
 

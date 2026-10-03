@@ -46,6 +46,7 @@ export interface ViewRect {
 }
 
 const BALL_CAP = 256; // 同時に出るボールの上限。超えた分は描かない
+const CROSS_CAP = BALL_CAP * 2; // × の印はボール 1 個につき矩形 2 本
 const SPARK_CAP = MAX_AGENT_COUNT * 8 + 64;
 const DOT_CAP = MAX_AGENT_COUNT * FEED_KEEP;
 const PULSE_BEATS = 0.5; // 当たったあとの発光が消えるまでの拍数
@@ -58,6 +59,7 @@ const Z_AGENT = 0.5;
 const Z_FEED_DOT = 0.55;
 const Z_SEL_RING = 0.6;
 const Z_BALL = 1;
+const Z_CROSS = 1.05; // 落とされたボールに重ねる × の印
 const Z_SPARK = 1.2;
 
 // VIEW_RECT をカメラに収める（contain）
@@ -160,6 +162,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   ballRingMesh.frustumCulled = false;
   scene.add(ballRingMesh);
 
+  // 落とされたボールに重ねる × の印（細い矩形 2 本を ±45° で重ねる）
+  const crossMesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    CROSS_CAP,
+  );
+  crossMesh.count = 0;
+  crossMesh.frustumCulled = false;
+  scene.add(crossMesh);
+
   // 配信の火花（平面の小さな円）
   const sparkMesh = new THREE.InstancedMesh(
     new THREE.CircleGeometry(1, 10),
@@ -205,6 +217,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const agentLabels: HTMLElement[] = [];
   let selectedId: number | null = null;
   let timeSec = 0;
+  // 箱に落ちたボールの累計（ラベルに出す）。reset で 0 に戻す
+  let scrapCount = 0;
+  let rejectCount = 0;
   // キー（kind:index）ごとの、当たりの強さとそれを出したボールの話題の色
   const pulseMap = new Map<string, { p: number; color: THREE.Color }>();
   const anticipMap = new Map<string, number>();
@@ -226,8 +241,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   addLabel('スコアリング', () => ({ x: 0, y: -1.0, z: 0 }));
   addLabel('多様性調整', () => ({ x: 7.15, y: -1.0, z: 0 }));
   addLabel('選抜', () => ({ x: 14.4, y: -1.0, z: 0 }));
-  addLabel('除外', () => ({ x: -5.2, y: -1.0, z: 0 }), 'dim');
-  addLabel('落選', () => ({ x: 11.0, y: -1.0, z: 0 }), 'dim');
+  const scrapLabel = addLabel('除外 0', () => ({ x: -5.2, y: -1.0, z: 0 }), 'count');
+  const rejectLabel = addLabel('落選 0', () => ({ x: 11.0, y: -1.0, z: 0 }), 'count');
   TOPICS.forEach((t, i) => {
     // 街の中心から見て外向きに、地区の円の縁から 0.6 離す
     const el = addLabel(
@@ -271,6 +286,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const tmpV = new THREE.Vector3();
   const tmpS = new THREE.Vector3();
   const tmpC = new THREE.Color();
+  const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
   function setInstance(
     mesh: THREE.InstancedMesh,
@@ -279,8 +295,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     sx: number,
     sy: number,
     c: THREE.Color,
+    rot = 0, // z 軸まわりの回転（ラジアン）
   ) {
     tmpV.set(p.x, p.y, p.z);
+    tmpQ.setFromAxisAngle(Z_AXIS, rot);
     tmpS.set(Math.max(sx, 1e-4), Math.max(sy, 1e-4), 1);
     tmpM.compose(tmpV, tmpQ, tmpS);
     mesh.setMatrixAt(i, tmpM);
@@ -423,6 +441,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   function drawBalls(world: World, beat: number): void {
     let nf = 0; // 塗りつぶし
     let nh = 0; // 輪（フォロー外）
+    let nx = 0; // × の印
     let pale = 1;
     const put = (s: BallState, tailFade: number) => {
       const r = s.radius * tailFade;
@@ -448,6 +467,21 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       pale = selectedId !== null && c.agentId !== selectedId ? 0.3 : 1;
       // 頭と尾。尾は少し前の時刻に評価した位置に、だんだん小さく薄くする
       put(st, 1);
+      // 落とされたボール（頭だけ）に × を重ねる
+      if (st.crossed && nx + 2 <= CROSS_CAP) {
+        const len = st.radius * 2 * 1.3; // ボールの直径の 1.3 倍
+        for (const rot of [Math.PI / 4, -Math.PI / 4]) {
+          setInstance(
+            crossMesh,
+            nx++,
+            { x: st.pos.x, y: st.pos.y, z: Z_CROSS },
+            len,
+            0.06,
+            INK_C,
+            rot,
+          );
+        }
+      }
       for (let k = 1; k <= TAIL_STEPS && nf + nh < ballCap; k++) {
         const ts = ballState(c, beat - k * TAIL_DT, ap);
         if (!ts.visible) break;
@@ -460,6 +494,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     ballRingMesh.count = nh;
     ballRingMesh.instanceMatrix.needsUpdate = true;
     if (ballRingMesh.instanceColor) ballRingMesh.instanceColor.needsUpdate = true;
+    crossMesh.count = nx;
+    crossMesh.instanceMatrix.needsUpdate = true;
+    if (crossMesh.instanceColor) crossMesh.instanceColor.needsUpdate = true;
   }
 
   function drawSparks(dt: number): void {
@@ -597,10 +634,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       glowFill(b.mat, 'bell', i);
       b.mesh.scale.setScalar(1 + 0.2 * p);
     });
-    glowLine(stage.cymbalBar.mat, 'cymbal');
-    stage.cymbalBar.mesh.rotation.z =
-      stage.cymbalBar.baseRot + Math.sin(timeSec * 26) * 0.4 * pulse('cymbal');
-    glowLine(stage.trapBar.mat, 'trap');
+    // プレス機: 直前に少し振りかぶり、当たった瞬間にヘッドが打点まで降りてから戻る。
+    // ヘッドは話題の色ではなく黒く光る（落とす機械は色を持たない）。
+    const cp = pulse('cymbal');
+    stage.press.group.position.y = stage.press.restY - 0.9 * cp + 0.25 * anticip('cymbal');
+    stage.press.headMat.color.copy(PAPER_C).lerp(INK_C, cp);
+    // 落選の扉: 当たった瞬間に開ききっていて、そこから閉じていく
+    stage.trapDoor.hinge.rotation.z = -1.35 * pulse('trap');
     stage.scrapBin.position.y = -0.09 * pulse('scrap');
     stage.rejectBin.position.y = -0.09 * pulse('reject');
     stage.pipes.forEach((pipe, i) => {
@@ -630,8 +670,21 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       pending.length = 0;
       rebuildAgentLabels(world);
       timeSec = 0;
+      scrapCount = 0;
+      rejectCount = 0;
+      scrapLabel.textContent = '除外 0';
+      rejectLabel.textContent = '落選 0';
     },
     onBeat(_world, events) {
+      // 箱に落ちたボールを数えてラベルを更新する（dropStage 1 が除外、4 が落選）
+      for (const c of events.dropped) {
+        if (c.dropStage === 1) scrapCount++;
+        else if (c.dropStage === 4) rejectCount++;
+      }
+      if (events.dropped.length > 0) {
+        scrapLabel.textContent = `除外 ${scrapCount}`;
+        rejectLabel.textContent = `落選 ${rejectCount}`;
+      }
       for (const d of events.delivered) {
         // 届いた拍の stepBeat 時点ではなく、その候補の catch の時刻（拍の途中）に発火する
         const hit = timeline(d.candidate).find((h) => h.kind === 'catch');

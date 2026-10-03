@@ -191,7 +191,8 @@ function deliver(world: World, cand: Candidate, params: Params, beat: number): D
 }
 
 // world.beat を 1 進め、そのビートの出来事を返す。
-export function stepBeat(world: World, params: Params): BeatEvents {
+// request が false のビートはフィード要求（4）を行わない（工程の紹介中に流すボールを減らすため）。
+export function stepBeat(world: World, params: Params, request = true): BeatEvents {
   const beat = ++world.beat;
   const events: BeatEvents = { beat, spawned: [], dropped: [], delivered: [] };
 
@@ -230,11 +231,13 @@ export function stepBeat(world: World, params: Params): BeatEvents {
   }
 
   // 4. フィード要求（1 拍につきエージェント 1 体。agents.length 拍で一巡する）
-  for (const agent of world.agents) {
-    if (beat % world.agents.length !== agent.id) continue;
-    const cands = runPipeline(world, agent, params);
-    world.candidates.push(...cands);
-    events.spawned.push(...cands);
+  if (request) {
+    for (const agent of world.agents) {
+      if (beat % world.agents.length !== agent.id) continue;
+      const cands = runPipeline(world, agent, params);
+      world.candidates.push(...cands);
+      events.spawned.push(...cands);
+    }
   }
 
   // 5. 指標の記録

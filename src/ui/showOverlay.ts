@@ -10,6 +10,15 @@ export interface ShowOverlay {
   hideTitle(): void;
   // 字幕と工程の進み具合を切り替える。null で消す
   setScene(scene: Scene | null): void;
+  // 個数の表示。null で隠す。active は強調する項目（0: 集めた, 1: 通過, 2: 届く, null: 強調なし）
+  setFunnel(
+    f: {
+      launched: number;
+      passed: number;
+      selected: number;
+      active: 0 | 1 | 2 | null;
+    } | null,
+  ): void;
   // 偏り指数（0..1）。null で隠す
   setBubble(value: number | null): void;
   // 一時停止中の小さな表示
@@ -99,6 +108,28 @@ export function createShowOverlay(
   const caption = div('show-caption');
   caption.hidden = true;
 
+  // 個数の表示（字幕の下に 1 行）。setScene の replaceChildren で外れても置き直す
+  const funnel = div('show-funnel');
+  const funnelNums: HTMLElement[] = [];
+  ['集めた', '通過', '届く'].forEach((label, i) => {
+    const item = div('show-funnel-item');
+    const lab = document.createElement('span');
+    lab.className = 'show-funnel-label';
+    lab.textContent = label;
+    const num = document.createElement('span');
+    num.className = 'show-funnel-num';
+    item.append(lab, num);
+    funnel.append(item);
+    funnelNums.push(num);
+    if (i < 2) {
+      const arrow = document.createElement('span');
+      arrow.className = 'show-funnel-arrow';
+      arrow.textContent = '→';
+      funnel.append(arrow);
+    }
+  });
+  let funnelOn = false;
+
   // --- 上中央（工程の進み具合 + 一時停止の表示） ---
   const top = div('show-top');
   top.hidden = true;
@@ -186,7 +217,21 @@ export function createShowOverlay(
         c.textContent = scene.caption;
         caption.append(c);
       }
+      if (funnelOn) caption.append(funnel); // 個数は字幕の最後に置き直す
       caption.hidden = false;
+    },
+    setFunnel(f) {
+      funnelOn = f !== null;
+      if (f === null) {
+        funnel.remove();
+        return;
+      }
+      const vals = [f.launched, f.passed, f.selected];
+      funnelNums.forEach((num, i) => {
+        num.textContent = String(vals[i]);
+        num.classList.toggle('active', f.active === i);
+      });
+      if (caption.lastElementChild !== funnel) caption.append(funnel);
     },
     setBubble(value) {
       if (value === null) {
