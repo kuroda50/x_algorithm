@@ -33,6 +33,16 @@ export interface Renderer {
   // 画面座標（clientX, clientY）にいるエージェントの id。いなければ null。
   hitTestAgent(clientX: number, clientY: number): number | null;
   setSelectedAgent(agentId: number | null): void;
+  // 画面に収める範囲を変える（発表の進行でカメラを楽器に寄せる）。null で全体に戻す。
+  // 切り替えは滑らかに動く。
+  setView(rect: ViewRect | null): void;
+}
+
+export interface ViewRect {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
 }
 
 const BALL_CAP = 256; // 同時に出るボールの上限。超えた分は描かない
@@ -91,6 +101,7 @@ const noopRenderer: Renderer = {
   draw() {},
   hitTestAgent: () => null,
   setSelectedAgent() {},
+  setView() {},
 };
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer {
@@ -360,20 +371,44 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
   }
 
-  // --- サイズ ---
+  // --- サイズとカメラの範囲 ---
+  const FULL_VIEW = { cx: VIEW_CX, cy: VIEW_CY, w: VIEW_W, h: VIEW_H };
+  const view = { ...FULL_VIEW }; // 今の範囲
+  let viewTarget = { ...FULL_VIEW }; // 向かう先
+  const VIEW_SPEED = 3.2; // 大きいほど速く寄る
+
+  function stepView(dt: number): void {
+    const k = 1 - Math.exp(-dt * VIEW_SPEED);
+    view.cx += (viewTarget.cx - view.cx) * k;
+    view.cy += (viewTarget.cy - view.cy) * k;
+    view.w += (viewTarget.w - view.w) * k;
+    view.h += (viewTarget.h - view.h) * k;
+    applyView();
+  }
+
   function applySize(): void {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     if (!w || !h) return;
+    gl.setSize(w, h, false);
+    applyView();
+  }
+
+  // 今の view（中心と幅・高さ）がちょうど収まるようにカメラを合わせる。
+  function applyView(): void {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
     const aspect = w / h;
-    const halfW = Math.max(VIEW_W / 2, (VIEW_H / 2) * aspect);
+    const halfW = Math.max(view.w / 2, (view.h / 2) * aspect);
     const halfH = halfW / aspect;
     camera.left = -halfW;
     camera.right = halfW;
     camera.top = halfH;
     camera.bottom = -halfH;
+    camera.position.x = view.cx;
+    camera.position.y = view.cy;
     camera.updateProjectionMatrix();
-    gl.setSize(w, h, false);
   }
 
   applySize();
@@ -605,6 +640,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         }
       }
       motion.update(world, dt);
+      stepView(dt);
       applyPulses(world, beat);
       applyBeatPulse(beat);
       drawBalls(world, beat);
@@ -633,6 +669,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     },
     setSelectedAgent(agentId) {
       selectedId = agentId;
+    },
+    setView(rect) {
+      viewTarget = rect
+        ? {
+            cx: (rect.x0 + rect.x1) / 2,
+            cy: (rect.y0 + rect.y1) / 2,
+            w: rect.x1 - rect.x0,
+            h: rect.y1 - rect.y0,
+          }
+        : { ...FULL_VIEW };
     },
   };
 }
